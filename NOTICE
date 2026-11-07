@@ -1,0 +1,14 @@
+MeiloX NetEase Source
+Copyright (c) 2026 MeiloX contributors
+Licensed under GPL-3.0-only; see LICENSE.
+
+The protocol recipes and compatibility DTO projections are derived from the
+MeiloX project at commit bd9630692de4ad80663dcdc0bf9d59291aff8725:
+https://github.com/NEORUAA/MeiloX
+Original Mei components retain their Apache-2.0 attribution:
+https://github.com/ljyh223/Mei
+
+This package contains no account credentials, platform secrets, or audio files.
+Cryptographic transports are supplied by explicitly approved host SDK primitives.
+The plugin owns URLs, request parameters, response projection and session state.
+The host lyric implementation is independent of this source package.

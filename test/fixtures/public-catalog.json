@@ -1,0 +1,117 @@
+{
+  "capturedAt": "2026-11-07",
+  "source": "https://interface.music.163.com/api/search/get/",
+  "anonymous": true,
+  "responses": {
+    "track": {
+      "code": 200,
+      "result": {
+        "songs": [
+          {
+            "album": {
+              "publishTime": 1792512000000,
+              "size": 3,
+              "artist": {
+                "img1v1Url": "https://p1.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+                "name": "",
+                "alias": [],
+                "id": "0",
+                "picId": "0"
+              },
+              "name": "原神-愿逐月华照君明 A Lyght of the Mone for Thee",
+              "id": "406082715",
+              "picId": "109951174174461108"
+            },
+            "duration": 167582,
+            "artists": [
+              {
+                "img1v1Url": "https://p1.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+                "name": "HOYO-MiX",
+                "alias": [],
+                "id": "12487174",
+                "picId": "0"
+              }
+            ],
+            "name": "翦玉令·燕辞归 Tune: \"Sheared Jade\" - Return of the Swallow",
+            "alias": [],
+            "id": "3453918279"
+          }
+        ]
+      }
+    },
+    "album": {
+      "code": 200,
+      "result": {
+        "albums": [
+          {
+            "name": "崩坏3-映忆流歌-Original Soundtrack",
+            "id": "403676635",
+            "size": 9,
+            "picId": "109951174102805214",
+            "picUrl": "http://p2.music.126.net/XKrp7wfqoIfCk0yipzwSaA==/109951174102805214.jpg",
+            "publishTime": 1791907200000,
+            "description": "",
+            "briefDesc": "",
+            "artist": {
+              "name": "HOYO-MiX",
+              "id": "12487174",
+              "picId": "109951164496484854",
+              "briefDesc": "",
+              "picUrl": "http://p2.music.126.net/JsIJaz49qG0NAeHLUxKqDw==/109951164496484854.jpg",
+              "img1v1Url": "http://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+              "alias": [],
+              "alia": []
+            },
+            "alias": [],
+            "artists": [
+              {
+                "name": "HOYO-MiX",
+                "id": "12487174",
+                "picId": "0",
+                "briefDesc": "",
+                "picUrl": "http://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+                "img1v1Url": "http://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg",
+                "alias": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "artist": {
+      "code": 200,
+      "result": {
+        "artists": [
+          {
+            "id": "12487174",
+            "name": "HOYO-MiX",
+            "picUrl": "https://p2.music.126.net/JsIJaz49qG0NAeHLUxKqDw==/109951164496484854.jpg",
+            "alias": [],
+            "picId": "109951164496484854",
+            "img1v1Url": "https://p2.music.126.net/Y2_BNSAyXLMHztZWCfUKKA==/109951168127138041.jpg"
+          }
+        ]
+      }
+    },
+    "playlist": {
+      "code": 200,
+      "result": {
+        "playlists": [
+          {
+            "id": "18213053694",
+            "name": "HOYO-MiX神曲",
+            "coverImgUrl": "http://p1.music.126.net/_WcJG9AC3imWAN1msVXp2w==/109951173812800005.jpg",
+            "creator": {
+              "nickname": "白彦执",
+              "userId": "17616089738"
+            },
+            "trackCount": 79,
+            "userId": "17616089738",
+            "specialType": 0,
+            "description": "原崩绝都有，你就听去吧，一听一个不吱声"
+          }
+        ]
+      }
+    }
+  }
+}
