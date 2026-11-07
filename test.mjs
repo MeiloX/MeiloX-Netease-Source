@@ -54,6 +54,25 @@ for(const playCount of [undefined,null,-1,1.5,true,'unknown',Number.MAX_SAFE_INT
 assert.equal(value('feed.discover',{},[{code:200,playlists:[{...playlist(),playCount:4500000000}],more:false}]).sections[0].items[0].playlist.playCount,4500000000);
 assert.equal(value('catalog.track',{trackId:'42'},[{code:200,songs:[song()]}]).trackId,'42');
 assert.equal(value('catalog.track',{trackId:'43'},[{code:200,songs:[song()]}]),null);
+for(const field of ['pic_str','picId_str']){
+ const album={id:9,name:'Album',[field]:'109951173516046564',picId:109951173516046560};
+ const track=value('catalog.track',{trackId:'42'},[{code:200,songs:[{...song(),al:album}]}]);
+ const detail=value('album.get',{albumId:'9'},[{code:200,album}]);
+ assert.match(track.artworkUrl,/\/109951173516046564\.jpg$/);
+ assert.equal(track.artworkUrl,detail.artworkUrl);
+}
+const albumCover='https://p1.music.126.net/album-cover.jpg';
+const albumTracks=value('album.tracks',{albumId:'9'},[{code:200,
+ album:{id:9,name:'Album',picUrl:albumCover},
+ songs:[{...song(42),al:{id:9,name:'Album'}},song(43)],
+}]);
+assert.equal(albumTracks.items[0].artworkUrl,albumCover);
+assert.equal(albumTracks.items[1].artworkUrl,song(43).al.picUrl);
+const recommendedPlaylist={...playlist(),copywriter:'Recommendation from the source'};
+const recommended=value('feed.discover',{},[{code:200,playlists:[recommendedPlaylist],more:false}]);
+assert.equal(recommended.sections[0].items[0].playlist.subtitle,recommendedPlaylist.copywriter);
+assert.equal(recommended.sections[0].items[0].playlist.creatorName,recommendedPlaylist.creator.nickname);
+
 assert.equal(value('album.get',{albumId:'9'},[{code:200,album:{id:9,name:'Album',artists:[],size:2,publishTime:1700000000000},songs:[song()]}]).albumId,'9');
 assert.equal(value('artist.get',{artistId:'8'},[{code:200,data:{artist:{id:8,name:'Artist',alias:['Alias']}}}]).artistId,'8');
 assert.equal(value('account.get',{},[],anonymous),null);

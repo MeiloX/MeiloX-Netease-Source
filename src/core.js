@@ -101,7 +101,19 @@ function respondCore(operation,response,state,context){
   case 'account':{storageAccount(body,state,context);state.uid=state.store.userId;return afterAccount(state.continuation,p,context,state);}
   case 'search':{const type=p.type||'track',data=object(body.result),fields={track:'songs',artist:'artists',album:'albums',playlist:'playlists'},items=array(data[fields[type]]).map(value=>item(type,type==='track'?trackData(value):type==='album'?albumData(value):type==='artist'?artistData(value):playlistData(value,knownUid(context,state.store))));return done(page(items,p,Number(data.songCount||data.artistCount||data.albumCount||data.playlistCount)||undefined,items.length===limit(p)),state,context);}
   case 'track':{const song=array(body.songs).find(value=>String(value.id)===String(p.trackId));return done(song?trackData(song):null,state,context);}
-  case 'album':{const album=object(body.album);if(String(album.id)!==String(p.albumId))problem('NOT_FOUND');if(operation==='album.get')return done(albumData(album),state,context);const songs=array(body.songs),start=offset(p);return done(page(songs.slice(start,start+limit(p)).map(trackData),p,songs.length,false),state,context);}
+  case 'album':{
+   const album=object(body.album);
+   if(String(album.id)!==String(p.albumId))problem('NOT_FOUND');
+   const detail=albumData(album);
+   if(operation==='album.get')return done(detail,state,context);
+   const songs=array(body.songs),start=offset(p);
+   const tracks=songs.slice(start,start+limit(p)).map(song=>{
+    const track=trackData(song);
+    if(!track.artworkUrl)track.artworkUrl=detail.artworkUrl;
+    return track;
+   });
+   return done(page(tracks,p,songs.length,false),state,context);
+  }
   case 'artist':{const artist=object(object(body.data).artist);if(String(artist.id)!==String(p.artistId))problem('NOT_FOUND');return done(artistData(artist,object(body.data)),state,context);}
   case 'artistTracks':return done(page(array(body.songs).map(trackData),p,Number(body.total)||undefined,body.more===true),state,context);
   case 'artistAlbums':return done(page(array(body.hotAlbums).map(albumData),p,undefined,body.more===true),state,context);
