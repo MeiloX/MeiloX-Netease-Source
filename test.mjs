@@ -1,6 +1,17 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
+// The focused invocation restricts V8 old-space to 16 MiB to catch allocation regressions.
+function assertLargeJSON(scope){
+ const largeText='x'.repeat(728000)+' quoted "9223372036854775806" \\ slash',largeJson=JSON.stringify({code:200,data:{text:largeText,unsafe:'UNSAFE_ID',safe:1700000000000,decimal:1.25,exponent:1e30}}).replace('"UNSAFE_ID"','9223372036854775806');
+ scope.largeJsonFixture=largeJson;
+ try{const parsed=vm.runInContext('parseJSON(largeJsonFixture)',scope);assert.equal(parsed.data.text,largeText);assert.equal(parsed.data.unsafe,'9223372036854775806');assert.equal(parsed.data.safe,1700000000000);assert.equal(parsed.data.decimal,1.25);assert.equal(parsed.data.exponent,1e30);}finally{delete scope.largeJsonFixture;}
+}
+if(process.argv.slice(2).length){
+ assert.deepEqual(process.argv.slice(2),['--focus=large-json']);
+ const scope=vm.createContext({Date});vm.runInContext(readFileSync(new URL('src/protocol.js',import.meta.url),'utf8'),scope);
+ assertLargeJSON(scope);console.log('NetEase large JSON heap regression passed.');process.exit(0);
+}
 const manifest=JSON.parse(readFileSync(new URL('manifest.json',import.meta.url)));
 assert.deepEqual(manifest.sessionKeys,['cookie','sessionType']);assert.deepEqual(manifest.sessionCookieNames,{cookie:['MUSIC_U']});
 const scope=vm.createContext({Date});
@@ -218,6 +229,10 @@ const inlineQueue=value('feature.invoke',{feature:'discovery',action:'homePlayba
 // Preserve the old native home parser's permissive container and strict route cases in the producer.
 const pureScope=vm.createContext({Date});vm.runInContext(['protocol','core','projections','history','effects','features'].map(name=>readFileSync(new URL('src/'+name+'.js',import.meta.url),'utf8')).join('\n'),pureScope);
 const pure=expression=>clone(vm.runInContext(expression,pureScope));
+// Large quoted Home DSL strings must not create one retained string per character.
+assertLargeJSON(pureScope);
+for(const quoted of ['"', '\\', '\\"', '\\\\"', 'end\\', '9223372036854775806', '\u2028中文']){const raw=JSON.stringify({text:quoted,unsafe:'UNSAFE_ID'}).replace('"UNSAFE_ID"','-9223372036854775808');pureScope.quotedJsonFixture=raw;const parsed=pure('parseJSON(quotedJsonFixture)');assert.equal(parsed.text,quoted);assert.equal(parsed.unsafe,'-9223372036854775808');}delete pureScope.quotedJsonFixture;
+for(const malformed of ['{"text":"unterminated}', '{"text":"escape\\"}', '{"number":01}', '{"number":1e}']){pureScope.malformedJsonFixture=malformed;assert.throws(()=>pure('parseJSON(malformedJsonFixture)'));}delete pureScope.malformedJsonFixture;
 assert.deepEqual(pure('homeIdentifiers(\'["42",7,"00042",123,"7",null,-1,0,"null",true,{},[],1.5,"1e3"]\')'),['42','7','123']);
 for(const bad of [null,'','null','[]','{}','[false]','not json'])assert.deepEqual(pure('homeIdentifiers('+JSON.stringify(bad)+')'),[]);
 for(const route of ['orpheus://playlist/123?source=home','orpheus://playlist/123/','orpheus://nm/playlist/detail?id=123&source=home','orpheus://nm/playlist/detail?source=home&id=%31%32%33'])assert.equal(pure('homePlaylistLink('+JSON.stringify(route)+')'),'123');

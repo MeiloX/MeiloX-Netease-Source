@@ -2,7 +2,9 @@
 
 A removable NetEase Music source for MeiloX source API 2. Protocol recipes, endpoint selection, request fields, account state, and response projection live in this repository. Shared presentation, playback, local data, and multi-source lyrics remain host features.
 
-The 0.1.1 package includes the exact `p6.music.126.net` permission for Home artwork alongside its existing image hosts. NetEase can return different audio CDN hosts across tracks and sessions. Audio permissions cover the exact hosts `m7`, `m8`, `m10`, `m701`, `m704`, `m801`, and `m804` under `music.126.net`; no wildcard domains are requested.
+Version 0.1.2 fixes high memory use when parsing large Home responses while preserving the complete returned content and exact large identifiers.
+
+The package includes the exact `p6.music.126.net` permission for Home artwork alongside its existing image hosts. NetEase can return different audio CDN hosts across tracks and sessions. Audio permissions cover the exact hosts `m7`, `m8`, `m10`, `m701`, `m704`, `m801`, and `m804` under `music.126.net`; no wildcard domains are requested.
 
 The additional audio hosts are supported by [original API response records](https://github.com/Binaryify/NeteaseCloudMusicApi/issues/1792), [Listen1's recorded player response](https://github.com/listen1/listen1_desktop/issues/797), and [MusicBot-Go's explicit CDN handling](https://github.com/liuran001/MusicBot-Go/blob/main/bot/download/service.go#L75). This is a finite reviewed list, not an enumeration of every future service host. A new host requires a reviewed package update; the source preserves the server-provided hostname.
 

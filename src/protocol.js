@@ -68,9 +68,15 @@ function request(path,body,context,state={},mode='api',extra={}){
 }
 /** Preserve identifiers beyond IEEE-754 integer precision before parsing remote JSON. */
 function parseJSON(serialized){
- let out='',quoted=false,escaped=false;
- for(let i=0;i<serialized.length;){const ch=serialized[i];if(quoted){out+=ch;i++;if(escaped)escaped=false;else if(ch==='\\')escaped=true;else if(ch==='"')quoted=false;continue;}if(ch==='"'){quoted=true;out+=ch;i++;continue;}if(ch==='-'||ch>='0'&&ch<='9'){const match=serialized.slice(i).match(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/);if(match){const number=match[0];out+=/^-?[0-9]+$/.test(number)&&!Number.isSafeInteger(Number(number))?JSON.stringify(number):number;i+=number.length;continue;}}out+=ch;i++;}
- return JSON.parse(out);
+ // Retain original ranges instead of one cons-string allocation per response character.
+ const chunks=[];let copied=0;
+ for(let i=0;i<serialized.length;){const ch=serialized[i];
+  if(ch==='"'){let next=i+1;while(true){const quote=serialized.indexOf('"',next);if(quote<0){i=serialized.length;break;}let slash=quote;while(slash>0&&serialized[slash-1]==='\\')slash--;next=quote+1;if((quote-slash)%2===0){i=next;break;}}continue;}
+  if(ch==='-'||ch>='0'&&ch<='9'){const match=serialized.slice(i).match(/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/);if(match){const number=match[0];if(/^-?[0-9]+$/.test(number)&&!Number.isSafeInteger(Number(number))){chunks.push(serialized.slice(copied,i),JSON.stringify(number));copied=i+number.length;}i+=number.length;continue;}}
+  i++;
+ }
+ if(!chunks.length)return JSON.parse(serialized);
+ chunks.push(serialized.slice(copied));return JSON.parse(chunks.join(''));
 }
 function parseResponse(response,state,context,allow=[]){
  mergeCookies(state.store,response,context);
