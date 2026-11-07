@@ -15,7 +15,17 @@ function requiredNumber(value){const number=nonnegative(value);if(number==null)p
 function statsData(body){if(!body.data||typeof body.data!=='object'||Array.isArray(body.data))problem('INVALID_RESPONSE');return body.data;}
 function statsYears(body){const data=statsData(body);if(!has(data,'yearItems'))return [];const rows=requiredList(data.yearItems),years=rows.map(value=>{const year=requiredNumber(value.year);if(year<1||year>9999)problem('INVALID_RESPONSE');return {year,totalSeconds:requiredNumber(value.playDuration),songCount:nonnegative(value.playNum)};});return [...new Map(years.map(value=>[value.year,value])).values()].sort((a,b)=>b.year-a.year);}
 function statsReport(body,p){const data=statsData(body),block=object(data.listenTimeDistributionBlock),start=requiredNumber(data.startTime),end=requiredNumber(data.endTime),days=requiredNumber(block.listenDays),totalMinutes=requiredNumber(block.playDuration);if(!start||end<start||days>366)problem('INVALID_RESPONSE');const bins=requiredList(block.durationDetails).map(value=>{const period=text(value.period);if(!/^\d{4}-\d{2}-\d{2}$/.test(period)||!Number.isFinite(Date.parse(period+'T00:00:00Z'))||new Date(period+'T00:00:00Z').toISOString().slice(0,10)!==period)problem('INVALID_RESPONSE');const duration=requiredNumber(value.duration)+(value.podcastDuration==null?0:requiredNumber(value.podcastDuration))+(value.audiobookDuration==null?0:requiredNumber(value.audiobookDuration));if(!Number.isSafeInteger(duration))problem('INVALID_RESPONSE');return {period,durationMinutes:duration};}).sort((a,b)=>a.period.localeCompare(b.period));if(new Set(bins.map(v=>v.period)).size!==bins.length)problem('INVALID_RESPONSE');const types={lateSleep:'LateSleep',earlySleep:'EarlySleep',durationDiffPositive:'DurationIncrease',durationDiffNegative:'DurationDecrease',maxPlayUserLikeChannel:'LikedSongsPercent',maxPlayRcmdChannel:'RecommendedSongsPercent'};return {period:String(p.period||'Week').toLowerCase()==='month'?'Month':'Week',startTimeMs:start,endTimeMs:end,totalMinutes,listenedDays:days,bins,isCurrent:!p.endTimeMs,sections:array(block.sections).filter(v=>has(types,v.type)&&nonnegative(v.value)!=null&&(!/Channel$/.test(v.type)||Number(v.value)<=100)).map(v=>({type:types[v.type],value:requiredNumber(v.value)}))};}
-function publicIdentities(value,key=''){if(Array.isArray(value))return value.map(v=>publicIdentities(v,key));if(value&&typeof value==='object'){const result={};for(const [name,v]of Object.entries(value))result[name]=publicIdentities(v,name);return result;}return /(?:^id$|Id$|Ids$|^uid$|^userid$|^threadId$)/.test(key)&&value!=null&&(typeof value==='number'||typeof value==='string')?String(value):value;}
+const FEATURE_ARTWORK_KEYS=new Set(['avatarUrl','backgroundUrl','coverUrl','picUrl','artworkUrl','avatarBadgeUrl','imageUrl']);
+function publicIdentities(value,key=''){
+ if(Array.isArray(value))return value.map(entry=>publicIdentities(entry,key));
+ if(value&&typeof value==='object'){
+  const result={};
+  for(const [name,entry]of Object.entries(value))result[name]=publicIdentities(entry,name);
+  return result;
+ }
+ if(typeof value==='string'&&FEATURE_ARTWORK_KEYS.has(key))return artwork(value);
+ return /(?:^id$|Id$|Ids$|^uid$|^userid$|^threadId$)/.test(key)&&value!=null&&(typeof value==='number'||typeof value==='string')?String(value):value;
+}
 function uniqueText(values){return [...new Set(values.map(value=>text(value,10000).trim()).filter(Boolean))];}
 function uiMain(ui){return nullableText(ui?.mainTitle?.title);}
 function uiSubs(ui){const many=array(ui?.subTitles).map(v=>v.title);return uniqueText(many.length?many:[ui?.subTitle?.title]);}

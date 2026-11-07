@@ -168,6 +168,28 @@ const shuffle=drive('feature.invoke',{feature:'discovery',action:'cloudShuffle',
 const imported=flow('importCookie',{cookie:'MUSIC_U=imported-session'},()=>({status:200,body:JSON.stringify(profile)}),()=>assert.fail('Cookie import has no interactive effect'),entropy);assert.equal(imported.result.id,'7');assert.equal(imported.storage.cookie,'MUSIC_U=imported-session');
 for(const [contentType,prefix]of [['track','R_SO_4_'],['playlist','A_PL_0_'],['album','R_AL_3_'],['program','A_DJ_1_']]){const comments=drive('feature.invoke',{feature:'social',action:'comments',parameters:{contentId:'42',contentType,sortType:'recommended'}},[{code:200,data:{comments:[]}}],anonymous);assert.equal(JSON.parse(comments.requests[0].body).threadId,prefix+'42');assert.equal(JSON.parse(comments.requests[0].body).sortType,99);}
 for(const [sortType,cursor,expected]of [['hot','time-cursor','normalHot#40'],['time','opaque-server-cursor','opaque-server-cursor'],['recommended','ignored-cursor','40']]){const comments=drive('feature.invoke',{feature:'social',action:'comments',parameters:{contentId:'42',contentType:'track',pageNo:3,pageSize:20,sortType,cursor}},[{code:200,data:{comments:[]}}],anonymous);assert.equal(JSON.parse(comments.requests[0].body).cursor,expected);}
+const commentArtworkKeys=['avatarUrl','backgroundUrl','coverUrl','picUrl','artworkUrl','avatarBadgeUrl','imageUrl'];
+const commentUser={userId:7,nickname:'Fixture user',avatarUrl:'http://p1.music.126.net/avatar.jpg?param=36y36'};
+const commentFixture={
+ commentId:9,user:commentUser,content:'http://example.com/comment-link',
+ beReplied:[{user:{...commentUser,userId:8}}],
+ images:Object.fromEntries(commentArtworkKeys.map(key=>[key,'http://p2.music.126.net/'+key+'.jpg'])),
+ emptyImages:{avatarUrl:'',coverUrl:null},
+ secureImages:{avatarUrl:'https://p3.music.126.net/avatar.jpg?param=36y36'},
+};
+for(const action of ['comments','floorComments']){
+ const projected=value('feature.invoke',{
+  feature:'social',action,parameters:{contentId:'42',contentType:'track',parentCommentId:'9'},
+ },[{code:200,data:{comments:[commentFixture]}}],anonymous).data.comments[0];
+ assert.equal(projected.user.avatarUrl,'https://p1.music.126.net/avatar.jpg?param=36y36');
+ assert.equal(projected.beReplied[0].user.avatarUrl,projected.user.avatarUrl);
+ for(const key of commentArtworkKeys)assert.equal(projected.images[key],'https://p2.music.126.net/'+key+'.jpg');
+ assert.deepEqual(projected.emptyImages,commentFixture.emptyImages);
+ assert.deepEqual(projected.secureImages,commentFixture.secureImages);
+ assert.equal(projected.content,commentFixture.content);
+ assert.equal(projected.commentId,'9');
+ assert.equal(projected.user.userId,'7');
+}
 const intelligence=value('feature.invoke',{feature:'discovery',action:'intelligence',parameters:{id:'42',playlistId:'10',startSongId:'42'}},[{code:200,data:[{songInfo:song()}]}]);assert.equal(intelligence.tracks[0].trackId,'42');
 const searchSuggestions=value('feature.invoke',{feature:'discovery',action:'searchSuggestions',parameters:{query:'Fixture'}},[{code:200,result:{songs:[{id:42,name:'Song'}],artists:[{id:8,name:'Artist'}]}}],anonymous);assert.deepEqual(searchSuggestions.items.map(value=>value.type),['track','artist']);
 const podcastSearch=value('feature.invoke',{feature:'podcasts',action:'search',parameters:{query:'Fixture',limit:1}},[{code:200,result:{djRadios:[{id:4,name:'Podcast'}],djRadiosCount:2}}],anonymous);assert.equal(podcastSearch.podcasts[0].id,'4');assert.equal(podcastSearch.hasMore,true);
