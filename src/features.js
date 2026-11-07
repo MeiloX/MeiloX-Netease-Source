@@ -83,11 +83,19 @@ function startFeature(params,context,state){
   case 'search':return request('/api/search/get/',{s:nonempty(p.query),type:1009,offset:integer(p.offset),limit:integer(p.limit,30,1,100)},context,{...s,step:'feature'},'api',{headers:{'X-Netease-Cookie-OS':'pc'}});
   case 'searchDiscovery':return send('/api/personalized/playlist',{limit:integer(p.limit,10,1,100),total:true,n:1000},'eapi');
   case 'dailySongs':return send('/api/v3/discovery/recommend/songs');
-  case 'homePlayback':if(p.kind==='inlinePodcast'){const track=object(p.track);id(track.trackId);if(!track.title)problem('INVALID_RESPONSE');return done({tracks:[track],mediaType:'episode'},s,context);}if(p.kind==='podcast')return request('/api/dj/program/detail',{id:id(p.programId)},context,{...s,step:'homePodcast'},'weapi');if(p.kind==='intelligence')return detailRequest([id(p.songId)],context,{...s,step:'homeIntelligenceSeed'});problem('UNSUPPORTED');
+  case 'homePlayback':
+   if(p.kind==='inlinePodcast'){const track=object(p.track);id(track.trackId);if(!track.title)problem('INVALID_RESPONSE');return done({tracks:[track],mediaType:'episode'},s,context);}
+   if(p.kind==='podcast')return request('/api/dj/program/detail',{id:id(p.programId)},context,{...s,step:'homePodcast'},'weapi');
+   if(p.kind==='intelligence'){
+    const seedRequest=detailRequest([id(p.songId)],context,{...s,step:'homeIntelligenceSeed'});
+    seedRequest.request.errorResponse=true;
+    return seedRequest;
+   }
+   problem('UNSUPPORTED');
   case 'personalRadio':{const list=value=>ids(Array.isArray(value)?value:parseJson(value,[])),similar=p.similar===true||p.mode==='SIMILAR';if(similar)return send('/api/v1/radio/get',{limit:'3',sourceIds:JSON.stringify(list(p.seedTrackIds||p.sourceIds)),sourceType:'song',mode:'SIMILAR',unplaySonIds:JSON.stringify(list(p.recentTrackIds||p.unplaySonIds))},'weapi');const mode=({default:'DEFAULT',explore:'EXPLORE',familiar:'FAMILIAR',scene:'SCENE_RCMD'})[p.mode]||p.mode||'DEFAULT';if(!['DEFAULT','EXPLORE','FAMILIAR','SCENE_RCMD'].includes(mode))problem('UNSUPPORTED');return send('/api/v1/radio/get',{mode,entranceType:'newframework_daily_recommend_mix',limit:'3',openAidj:'false',unplaySongIds:JSON.stringify(list(p.recentTrackIds||p.unplaySongIds||p.recentSongIds).slice(-200)),...(mode==='SCENE_RCMD'?{subMode:nonempty(p.sceneCode||p.subMode,100),...(p.cascadeMode||p.fmCascadeModeStr?{fmCascadeModeStr:nonempty(p.cascadeMode||p.fmCascadeModeStr,1000)}:{})}:{})},'eapi');}
   case 'cloudShuffle':return send('/api/playlist/random/list/get',{playlistId:id(p.playlistId),songId:id(p.songId),alg:text(p.alg,1000)},'eapi');
   case 'privateFmModes':return send('/api/link/position/show/resource',{positionCode:'FMTopModeDialog',extJson:JSON.stringify({isHomePageNewFramework:true,userSetFMMode:true,enableAutoPlay:true})},'eapi');
-  case 'intelligence':return send('/api/playmode/intelligence/list',{songId:id(p.id),playlistId:id(p.playlistId),startMusicId:id(p.startSongId),count:1});
+  case 'intelligence':return send('/api/playmode/intelligence/list',{songId:id(p.id),type:'fromPlayOne',playlistId:id(p.playlistId),startMusicId:id(p.startSongId),count:1},'api');
   case 'topLists':return send('/api/toplist');
   case 'playlistCategories':return send('/api/playlist/catalogue');
   case 'searchSuggestions':return send('/api/search/suggest/web/',{s:nonempty(p.query)},'api');
@@ -132,8 +140,13 @@ function respondFeature(response,state,context){
  if(state.step==='qrSubmitted'){const body=parseResponse(response,state,context,[800]);if(Number(body.code)===800)problem('AUTH_EXPIRED');if(Number(body.code)!==200)problem('INVALID_RESPONSE');return done(state.params.action==='pcQrLogin'?{status:'scanned',platform:text(body.platform),key:state.store.pcQrKey}:state.params.action==='markPcQrScanned'?text(body.platform):true,state,context);}
  if(state.step==='mobileFinal'||state.step==='webAuthAccount'){const body=parseResponse(response,state,context);if(state.step==='mobileFinal')commitMobileCookies(response,state,context);storageAccount(body,state,context);delete state.store.ursLoginToken;delete state.store.ursUpSmsChallenge;state.store.sessionType=state.step==='mobileFinal'?'Mobile':'Web';return done({authenticated:true,...profileData(body.profile||body.data?.profile)},state,context);}
  if(state.step==='homePodcast'){const body=parseResponse(response,state,context);if(String(body.program?.id)!==String(p.programId))problem('INVALID_RESPONSE');return done({tracks:[homeProgramTrack(body.program)],mediaType:'episode'},state,context);}
- if(state.step==='homeIntelligenceSeed'){const body=parseResponse(response,state,context),seed=array(body.songs).find(value=>String(value.id)===String(p.songId));if(!seed)problem('NOT_FOUND');return request('/api/playmode/intelligence/list',{songId:id(p.songId),playlistId:id(p.playlistId),startMusicId:id(p.songId),count:1},context,{...state,step:'homeIntelligence',seed:trackData(seed)},'weapi');}
- if(state.step==='homeIntelligence'){const body=parseResponse(response,state,context);return done({tracks:[state.seed,...mapped(body.data,value=>trackData(value.songInfo||value.song||value))],mediaType:'music'},state,context);}
+ if(state.step==='homeIntelligenceSeed'){
+  let seed=null;
+  try{const body=parseResponse(response,state,context),song=array(body.songs).find(value=>String(value.id)===String(p.songId));if(song)seed=trackData(song);}
+  catch(error){if(!error.sourceCode||error.sourceCode==='CANCELLED')throw error;}
+  return request('/api/playmode/intelligence/list',{songId:id(p.songId),type:'fromPlayOne',playlistId:id(p.playlistId),startMusicId:id(p.songId),count:1},context,{...state,step:'homeIntelligence',seed},'api');
+ }
+ if(state.step==='homeIntelligence'){const body=parseResponse(response,state,context);return done({tracks:[...(state.seed?[state.seed]:[]),...mapped(body.data,value=>trackData(value.songInfo||value.song||value))],mediaType:'music'},state,context);}
  if(state.step==='featureBindingsAccount'){const body=parseResponse(response,state,context);const profile=storageAccount(body,state,context);return featureRequest('/api/user/bindings/'+profile.userId,{},context,{...state,step:'feature'},'eapi');}
  let body;try{body=parseResponse(response,state,context,action==='qrStatus'?[800,801,802,803]:action==='removeDevice'?[401]:[]);}catch(error){if(action==='accountProfile'&&!state.accountFallback)return featureRequest('/api/nuser/account/get',{},context,{...state,accountFallback:true},'eapi');if(state.mode==='weapi'&&!state.retriedEapi&&READ_FALLBACK.has(action))return request(state.wirePath,state.wireFields,context,{...state,mode:'eapi',retriedEapi:true},'eapi');throw error;}if(action==='removeDevice'&&Number(body.code)===401)problem('VERIFICATION_REQUIRED');if(WRITE_ACTIONS.has(action)&&Number(body.code)!==200)problem('INVALID_RESPONSE');let value;
  if(state.step==='podcastHomeFeatured')return featureRequest('/api/djradio/personalize/rcmd',{limit:12},context,{...state,step:'podcastHomePersonalized',featured:mapped(body.djRadios,podcastData)});

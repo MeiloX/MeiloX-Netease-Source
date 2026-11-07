@@ -209,7 +209,12 @@ for(const action of ['comments','floorComments']){
  assert.equal(projected.commentId,'9');
  assert.equal(projected.user.userId,'7');
 }
-const intelligence=value('feature.invoke',{feature:'discovery',action:'intelligence',parameters:{id:'42',playlistId:'10',startSongId:'42'}},[{code:200,data:[{songInfo:song()}]}]);assert.equal(intelligence.tracks[0].trackId,'42');
+const intelligence=drive('feature.invoke',{feature:'discovery',action:'intelligence',parameters:{id:'42',playlistId:'10',startSongId:'42'}},[{code:200,data:[{songInfo:song()}]}]);
+assert.equal(intelligence.result.error,undefined);
+assert.equal(intelligence.result.result.tracks[0].trackId,'42');
+assert.equal(intelligence.requests[0].sdkConfig.mode,'api');
+assert.equal(new URL(intelligence.requests[0].url).pathname,'/api/playmode/intelligence/list');
+assert.deepEqual(JSON.parse(intelligence.requests[0].body),{songId:'42',type:'fromPlayOne',playlistId:'10',startMusicId:'42',count:1});
 const searchSuggestions=value('feature.invoke',{feature:'discovery',action:'searchSuggestions',parameters:{query:'Fixture'}},[{code:200,result:{songs:[{id:42,name:'Song'}],artists:[{id:8,name:'Artist'}]}}],anonymous);assert.deepEqual(searchSuggestions.items.map(value=>value.type),['track','artist']);
 const podcastSearch=value('feature.invoke',{feature:'podcasts',action:'search',parameters:{query:'Fixture',limit:1}},[{code:200,result:{djRadios:[{id:4,name:'Podcast'}],djRadiosCount:2}}],anonymous);assert.equal(podcastSearch.podcasts[0].id,'4');assert.equal(podcastSearch.hasMore,true);
 assert.equal(value('feature.invoke',{feature:'discovery',action:'searchCategories'},[],anonymous).length,20);
@@ -264,7 +269,30 @@ const heroResources=[cardResource('dailySongs','daily'),cardResource('fm','42'),
 const heroBlock={positionCode:'PAGE_RECOMMEND_DAILY_RECOMMEND',dslData:{blockResource:{resources:heroResources}}};
 const hero=value('feed.home',{},[{code:200,data:{blocks:[heroBlock]}}]);assert.equal(hero.sections[0].layout,'HERO');assert.deepEqual(hero.sections[0].cards.map(card=>card.target.kind),['route','radio','queue','radio','queue','queue','content','content','content']);assert.deepEqual(hero.sections[0].cards[3].target.seedIds,['42','7']);assert.equal(hero.sections[0].cards[0].target.route,'everyday');assert.equal(hero.sections[0].cards[6].target.contentRef.contentId,'123');assert.equal(hero.sections[0].cards[7].target.contentRef.type,'artist');assert.equal(hero.sections[0].cards[8].target.contentRef.type,'playlist');
 const heroReversed=value('feed.home',{},[{code:200,data:{blocks:[{...heroBlock,dslData:{blockResource:{resources:heroResources.toReversed()}}}]}}]);assert.deepEqual(heroReversed.sections[0].cards.map(card=>card.id),hero.sections[0].cards.map(card=>card.id).toReversed());
-const homeQueue=value('feature.invoke',{feature:'discovery',action:'homePlayback',parameters:{kind:'intelligence',songId:'42',playlistId:'10'}},[{code:200,songs:[song()]},{code:200,data:[{songInfo:song(43)}]}]);assert.deepEqual(homeQueue.tracks.map(track=>track.trackId),['42','43']);
+const homeQueue=drive('feature.invoke',{feature:'discovery',action:'homePlayback',parameters:{kind:'intelligence',songId:'42',playlistId:'10'}},[{code:200,songs:[song()]},{code:200,data:[{songInfo:song(43)}]}]);
+assert.equal(homeQueue.result.error,undefined);
+assert.deepEqual(homeQueue.result.result.tracks.map(track=>track.trackId),['42','43']);
+assert.equal(homeQueue.requests[0].errorResponse,true);
+assert.equal(homeQueue.requests[1].sdkConfig.mode,'api');
+assert.equal(new URL(homeQueue.requests[1].url).pathname,'/api/playmode/intelligence/list');
+assert.deepEqual(JSON.parse(homeQueue.requests[1].body),{songId:'42',type:'fromPlayOne',playlistId:'10',startMusicId:'42',count:1});
+for(const recommendationCount of [100,149]){
+ const recommendations=Array.from({length:recommendationCount},(_,index)=>song(1000+index));
+ const completeQueue=value('feature.invoke',{feature:'discovery',action:'homePlayback',parameters:{kind:'intelligence',songId:'42',playlistId:'10'}},[{code:200,songs:[song()]},{code:200,data:recommendations.map(songInfo=>({songInfo}))}]);
+ assert.equal(completeQueue.tracks.length,recommendationCount+1);
+ assert.deepEqual(completeQueue.tracks.map(track=>track.trackId),['42',...recommendations.map(track=>String(track.id))]);
+}
+for(const seedReply of [{code:200,songs:[]},{code:404}]){
+ const missingSeed=value('feature.invoke',{feature:'discovery',action:'homePlayback',parameters:{kind:'intelligence',songId:'42',playlistId:'10'}},[seedReply,{code:200,data:[{songInfo:song(43)}]}]);
+ assert.deepEqual(missingSeed.tracks.map(track=>track.trackId),['43']);
+}
+let failedSeed=clone(plugin['feature.invoke']({feature:'discovery',action:'homePlayback',parameters:{kind:'intelligence',songId:'42',playlistId:'10'}},clone(signed)));
+failedSeed=clone(plugin.onResponse('feature.invoke',{status:0,body:'',error:'TIMEOUT'},failedSeed.state,clone(signed)));
+assert.equal(failedSeed.request.sdkConfig.mode,'api');
+failedSeed=clone(plugin.onResponse('feature.invoke',{status:200,body:JSON.stringify({code:200,data:[{songInfo:song(43)}]})},failedSeed.state,clone(signed)));
+assert.deepEqual(failedSeed.result.tracks.map(track=>track.trackId),['43']);
+const unavailableIntelligence=drive('feature.invoke',{feature:'discovery',action:'homePlayback',parameters:{kind:'intelligence',songId:'42',playlistId:'10'}},[{code:200,songs:[]},{code:500}]);
+assert.equal(unavailableIntelligence.result.error,'UNAVAILABLE');
 const podcastQueue=value('feature.invoke',{feature:'discovery',action:'homePlayback',parameters:{kind:'podcast',programId:'90'}},[{code:200,program:{id:90,name:'Episode',mainSong:{id:43},radio:{id:70,name:'Radio'},dj:{nickname:'Host'}}}]);assert.equal(podcastQueue.mediaType,'episode');assert.equal(podcastQueue.tracks[0].title,'Episode');assert.equal(podcastQueue.tracks[0].trackId,'43');
 const inlineQueue=value('feature.invoke',{feature:'discovery',action:'homePlayback',parameters:hero.sections[0].cards[5].target.parameters},[]);assert.equal(inlineQueue.mediaType,'episode');assert.equal(inlineQueue.tracks[0].title,'Music episode');
 // Preserve the old native home parser's permissive container and strict route cases in the producer.

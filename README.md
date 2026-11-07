@@ -2,7 +2,7 @@
 
 A removable NetEase Music source for MeiloX source API 2. Protocol recipes, endpoint selection, request fields, account state, and response projection live in this repository. Shared presentation, playback, local data, and multi-source lyrics remain host features.
 
-Version 0.1.4 preserves exact artwork identifiers, fills missing track covers from album details, and restores discovery recommendation captions. It includes the comment avatar and large Home response fixes.
+Version 0.1.5 restores the original intelligence playback request and continues recommendations when the seed track is unavailable. It includes the artwork, comment avatar, and large Home response fixes.
 
 The package includes the exact `p6.music.126.net` permission for Home artwork alongside its existing image hosts. NetEase can return different audio CDN hosts across tracks and sessions. Audio permissions cover the exact hosts `m7`, `m8`, `m10`, `m701`, `m704`, `m801`, and `m804` under `music.126.net`; no wildcard domains are requested.
 
