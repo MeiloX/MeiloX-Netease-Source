@@ -5,7 +5,7 @@ const FEATURES={
  recognition:['match'],
  account:['accountProfile','accountDetail','accountPlaylists','accountConnections','setArtistFollowed'],
  podcasts:['podcastHome','podcasts','podcastDetail','podcastProgram','podcastPrograms','subscribedPodcasts','setPodcastSubscribed','search'],
- discovery:['searchCategories','searchDiscovery','dailySongs','homePlayback','personalRadio','cloudShuffle','privateFmModes','intelligence','topLists','playlistCategories','searchSuggestions','searchHot'],
+ discovery:['searchCategories','searchDiscovery','dailySongs','homePlayback','personalRadio','cloudShuffle','shuffleInput','shufflePolicy','privateFmModes','intelligence','topLists','playlistCategories','searchSuggestions','searchHot'],
  security:['summary','musician','phoneBinding','devices','authorizations','removeDevice','revokeAuthorization','sendDeviceVerificationCode','bindings','protection'],
  cloud:['cloudSongs','deleteCloudSong','uploadCloudSong'],
  stats:['userPlayRecords','listeningStatsSummary','listeningStatsReport','listeningStatsYears','recentSongs'],
@@ -28,8 +28,26 @@ function identifier(value,depth=0){if(depth>5)return null;if(value&&typeof value
 function togetherPlayback(data){const playlist=object(data.playlist),mode=text(playlist.playMode),random=/RANDOM|SHUFFLE/i.test(mode),songs=array(object(playlist[random?'randomList':'displayList']).result).map(value=>identifier(value)).filter(Boolean),command=object(data.playCommand),play=text(command.playStatus).toUpperCase(),type=text(command.commandType).toUpperCase();return {songIds:[...new Set(songs)],playMode:mode||null,command:Object.keys(command).length?{commandType:type||null,targetSongId:identifier(command.targetSongId),formerSongId:identifier(command.formerSongId),progressMs:integer(command.progress,0,0,Number.MAX_SAFE_INTEGER),isPlaying:['PLAY','PLAYING'].includes(play)?true:['PAUSE','PAUSED'].includes(play)?false:['PLAY','GOTO','NEXT','PREV'].includes(type)?true:type==='PAUSE'?false:null,clientSequence:integer(command.clientSeq,0,0,Number.MAX_SAFE_INTEGER),serverSequence:integer(command.serverSeq,0,0,Number.MAX_SAFE_INTEGER)}:null};}
 const READ_FALLBACK=new Set(['privateConversations','privateMessages','messageContacts','listenTogetherStatus','accountDetail','accountPlaylists','accountConnections','podcasts','podcastDetail','podcastProgram','podcastPrograms','subscribedPodcasts','cloudSongs','userPlayRecords','listeningStatsSummary','listeningStatsReport','listeningStatsYears','recentSongs']);
 function featureRequest(path,fields,context,state,mode='weapi'){return request(path,fields,context,{...state,step:'feature',mode,wirePath:path,wireFields:fields},mode);}
-function cloudShuffleRequest(playlistId,context,state){const p=state.params.parameters;return featureRequest('/api/playlist/random/list/get',{playlistId:id(playlistId),songId:id(p.songId),alg:text(p.alg,1000)},context,state,'eapi');}
+function cloudShuffleRequest(playlistId,context,state,route='native'){
+ const p=state.params.parameters,path='/api/playlist/random/list/get',fields={playlistId:id(playlistId),songId:id(p.songId)},alg=text(p.alg,1000);
+ if(route==='native'||alg)fields.alg=alg;
+ const extra=route==='native'?{host:API,eapiNumericFields:['playlistId','songId']}:{eapiEnvelope:{header:'{}',e_r:route==='tv'?true:'true'},...(route==='tv'?{host:'https://interfacetv.music.163.com'}:{})};
+ return request(path,fields,context,{...state,step:'feature',mode:'eapi',shuffleRoute:route,wirePath:path,wireFields:fields},'eapi',{errorResponse:true,...extra});
+}
+function cloudShuffleResult(body){
+ const data=object(body.data);if(data.songIds!=null&&!Array.isArray(data.songIds))problem('INVALID_RESPONSE');
+ let values=data.songIds;
+ if(!values?.length&&Array.isArray(data.songData)&&data.songData.length&&Array.isArray(data.privileges))values=data.songData.map(value=>value?.id);
+ if(!Array.isArray(values))problem('INVALID_RESPONSE');if(!values.length)problem('UNAVAILABLE');
+ const order=values.map(value=>identifier(value));if(order.some(value=>!value))problem('INVALID_RESPONSE');
+ return {order,tracks:mapped(array(data.songData).slice(0,30),trackData),unavailable:array(data.privileges).filter(value=>Number(value.st)<0||value.pl!=null&&Number(value.pl)===0&&(!text(value.playMaxBrLevel).trim()||text(value.playMaxBrLevel).toLowerCase()==='none')).map(value=>identifier(value.id)).filter(Boolean)};
+}
+function respondCloudShuffle(response,state,context){
+ try{return done(cloudShuffleResult(parseResponse(response,state,context)),state,context);}
+ catch(error){if(state.shuffleRoute!=='tv'&&['NETWORK','UNAVAILABLE'].includes(error?.sourceCode))return cloudShuffleRequest(state.wireFields.playlistId,context,state,state.shuffleRoute==='native'?'watch':'tv');throw error;}
+}
 function cloudShuffleLikedPlaylists(context,state,uid,offset=0){return request('/api/user/playlist',{uid,offset,limit:100,total:true},context,{...state,step:'cloudShuffleLikedPlaylists',shuffleUid:uid,shuffleOffset:offset},'weapi');}
+function shuffleInputRequest(playlistId,context,state){return playlistRequest(playlistId,context,{...state,step:'shuffleInputDetail',playlistId:id(playlistId)});}
 function commentThread(p){if(p.contentId!=null){const prefixes={track:'R_SO_4_',playlist:'A_PL_0_',album:'R_AL_3_',program:'A_DJ_1_'};if(!has(prefixes,p.contentType))problem('UNSUPPORTED');return prefixes[p.contentType]+id(p.contentId);}return nonempty(p.threadId,2048);}
 function commentCursor(p){const sort=commentSort(p.sortType),offset=(integer(p.pageNo,1,1)-1)*integer(p.pageSize,20,1,100);return sort===2?'normalHot#'+offset:sort===3?text(p.cursor||'0',2048):String(offset);}
 function commentSort(value){if(value==null)return 99;if(typeof value==='string'&&has({recommended:99,hot:2,time:3},value))return {recommended:99,hot:2,time:3}[value];const result=Number(value);if(![1,2,3,99].includes(result))problem('INVALID_RESPONSE');return result;}
@@ -95,10 +113,12 @@ function startFeature(params,context,state){
    }
    problem('UNSUPPORTED');
   case 'personalRadio':{const list=value=>ids(Array.isArray(value)?value:parseJson(value,[])),similar=p.similar===true||p.mode==='SIMILAR';if(similar)return send('/api/v1/radio/get',{limit:'3',sourceIds:JSON.stringify(list(p.seedTrackIds||p.sourceIds)),sourceType:'song',mode:'SIMILAR',unplaySonIds:JSON.stringify(list(p.recentTrackIds||p.unplaySonIds))},'weapi');const mode=({default:'DEFAULT',explore:'EXPLORE',familiar:'FAMILIAR',scene:'SCENE_RCMD'})[p.mode]||p.mode||'DEFAULT';if(!['DEFAULT','EXPLORE','FAMILIAR','SCENE_RCMD'].includes(mode))problem('UNSUPPORTED');return send('/api/v1/radio/get',{mode,entranceType:'newframework_daily_recommend_mix',limit:'3',openAidj:'false',unplaySongIds:JSON.stringify(list(p.recentTrackIds||p.unplaySongIds||p.recentSongIds).slice(-200)),...(mode==='SCENE_RCMD'?{subMode:nonempty(p.sceneCode||p.subMode,100),...(p.cascadeMode||p.fmCascadeModeStr?{fmCascadeModeStr:nonempty(p.cascadeMode||p.fmCascadeModeStr,1000)}:{})}:{})},'eapi');}
-  case 'cloudShuffle':{
-   if(p.collection==null)return cloudShuffleRequest(p.playlistId,context,s);
+  case 'shufflePolicy':return shufflePolicyRequest(context,s);
+  case 'cloudShuffle':case 'shuffleInput':{
+   if(action==='shuffleInput'&&p.collection!=null&&p.collection!=='LIKED_TRACKS')problem('UNSUPPORTED');
+   if(p.collection==null)return action==='shuffleInput'?shuffleInputRequest(p.playlistId,context,s):cloudShuffleRequest(p.playlistId,context,s);
    if(p.collection!=='LIKED_TRACKS')problem('UNSUPPORTED');
-   id(p.songId);const uid=knownUid(context,s.store);
+   if(action==='cloudShuffle')id(p.songId);const uid=knownUid(context);
    return uid?cloudShuffleLikedPlaylists(context,s,uid):request('/api/w/nuser/account/get',{},context,{...s,step:'cloudShuffleAccount'},'eapi');
   }
   case 'privateFmModes':return send('/api/link/position/show/resource',{positionCode:'FMTopModeDialog',extJson:JSON.stringify({isHomePageNewFramework:true,userSetFMMode:true,enableAutoPlay:true})},'eapi');
@@ -135,13 +155,23 @@ function startFeature(params,context,state){
 }
 function respondFeature(response,state,context){
  const f=state.params,p=f.parameters,action=f.action;
+ if(action==='shufflePolicy')return respondShufflePolicy(response,state,context);
+ if(action==='cloudShuffle'&&state.step==='feature')return respondCloudShuffle(response,state,context);
+ if(state.step==='shuffleInputDetail'){
+  const body=parseResponse(response,state,context),playlist=object(body.playlist);
+  if(String(playlist.id)!==state.playlistId)problem('NOT_FOUND');
+  if(!Array.isArray(playlist.trackIds))problem('INVALID_RESPONSE');
+  const all=playlist.trackIds.map(value=>id(value?.id));
+  if(integer(playlist.trackCount)>all.length)problem('INVALID_RESPONSE');
+  return done({playlistId:state.playlistId,ids:all,executionTimeoutMs:2000},state,context);
+ }
  if(state.step==='cloudShuffleAccount'){
   let body;try{body=parseResponse(response,state,context);}catch(error){if(state.accountFallback)throw error;return request('/api/nuser/account/get',{},context,{...state,accountFallback:true},'eapi');}
-  storageAccount(body,state,context);return cloudShuffleLikedPlaylists(context,state,state.store.userId);
+  parseAccount(body,state,context);return cloudShuffleLikedPlaylists(context,state,state.uid);
  }
  if(state.step==='cloudShuffleLikedPlaylists'){
   const body=parseResponse(response,state,context),rows=requiredList(body.playlist),liked=rows.find(value=>String(object(value.creator).userId)===state.shuffleUid&&integer(value.specialType)===5);
-  if(liked)return cloudShuffleRequest(liked.id,context,state);
+  if(liked)return action==='shuffleInput'?shuffleInputRequest(liked.id,context,state):cloudShuffleRequest(liked.id,context,state);
   if(body.more===true&&rows.length)return cloudShuffleLikedPlaylists(context,state,state.shuffleUid,state.shuffleOffset+rows.length);
   problem('NOT_FOUND');
  }
@@ -153,9 +183,9 @@ function respondFeature(response,state,context){
  if(state.step.startsWith('cloudUpload'))return respondCloudUpload(response,state,context);
  if(state.step==='urs')return respondUrs(response,state,context);
  if(state.step==='deviceRegistered'){const body=parseResponse(response,state,context),data=object(body.data);state.store.sDeviceId=nonempty(data.sDeviceId,16000);state.store.deviceRegisteredModel=state.deviceModel;if(data.initAppBySDeviceId===true)state.store.deviceId=state.store.sDeviceId;return state.deviceAfter==='mobile'?mobileFinal(context,state,{...state.security,deviceId:state.store.deviceId,sDeviceId:state.store.sDeviceId}):qrSubmit(context,state,{...state.security,deviceId:state.store.deviceId,sDeviceId:state.store.sDeviceId});}
- if(state.step==='qrAccount'){const body=parseResponse(response,state,context);storageAccount(body,state,context);return qrSubmit(context,state,state.qrProof);}
+ if(state.step==='qrAccount'){const body=parseResponse(response,state,context);parseAccount(body,state,context);return qrSubmit(context,state,state.qrProof);}
  if(state.step==='qrSubmitted'){const body=parseResponse(response,state,context,[800]);if(Number(body.code)===800)problem('AUTH_EXPIRED');if(Number(body.code)!==200)problem('INVALID_RESPONSE');return done(state.params.action==='pcQrLogin'?{status:'scanned',platform:text(body.platform),key:state.store.pcQrKey}:state.params.action==='markPcQrScanned'?text(body.platform):true,state,context);}
- if(state.step==='mobileFinal'||state.step==='webAuthAccount'){const body=parseResponse(response,state,context);if(state.step==='mobileFinal')commitMobileCookies(response,state,context);storageAccount(body,state,context);delete state.store.ursLoginToken;delete state.store.ursUpSmsChallenge;state.store.sessionType=state.step==='mobileFinal'?'Mobile':'Web';return done({authenticated:true,...profileData(body.profile||body.data?.profile)},state,context);}
+ if(state.step==='mobileFinal'||state.step==='webAuthAccount'){const body=parseResponse(response,state,context);if(state.step==='mobileFinal')commitMobileCookies(response,state,context);parseAccount(body,state,context);delete state.store.ursLoginToken;delete state.store.ursUpSmsChallenge;state.store.sessionType=state.step==='mobileFinal'?'Mobile':'Web';return done({authenticated:true,...profileData(body.profile||body.data?.profile)},state,context);}
  if(state.step==='homePodcast'){const body=parseResponse(response,state,context);if(String(body.program?.id)!==String(p.programId))problem('INVALID_RESPONSE');return done({tracks:[homeProgramTrack(body.program)],mediaType:'episode'},state,context);}
  if(state.step==='homeIntelligenceSeed'){
   let seed=null;
@@ -164,7 +194,7 @@ function respondFeature(response,state,context){
   return request('/api/playmode/intelligence/list',{songId:id(p.songId),type:'fromPlayOne',playlistId:id(p.playlistId),startMusicId:id(p.songId),count:1},context,{...state,step:'homeIntelligence',seed},'api');
  }
  if(state.step==='homeIntelligence'){const body=parseResponse(response,state,context);return done({tracks:[...(state.seed?[state.seed]:[]),...mapped(body.data,value=>trackData(value.songInfo||value.song||value))],mediaType:'music'},state,context);}
- if(state.step==='featureBindingsAccount'){const body=parseResponse(response,state,context);const profile=storageAccount(body,state,context);return featureRequest('/api/user/bindings/'+profile.userId,{},context,{...state,step:'feature'},'eapi');}
+ if(state.step==='featureBindingsAccount'){const body=parseResponse(response,state,context);const profile=parseAccount(body,state,context);return featureRequest('/api/user/bindings/'+profile.userId,{},context,{...state,step:'feature'},'eapi');}
  let body;try{body=parseResponse(response,state,context,action==='qrStatus'?[800,801,802,803]:action==='removeDevice'?[401]:[]);}catch(error){if(action==='accountProfile'&&!state.accountFallback)return featureRequest('/api/nuser/account/get',{},context,{...state,accountFallback:true},'eapi');if(state.mode==='weapi'&&!state.retriedEapi&&READ_FALLBACK.has(action))return request(state.wirePath,state.wireFields,context,{...state,mode:'eapi',retriedEapi:true},'eapi');throw error;}if(action==='removeDevice'&&Number(body.code)===401)problem('VERIFICATION_REQUIRED');if(WRITE_ACTIONS.has(action)&&Number(body.code)!==200)problem('INVALID_RESPONSE');let value;
  if(state.step==='podcastHomeFeatured')return featureRequest('/api/djradio/personalize/rcmd',{limit:12},context,{...state,step:'podcastHomePersonalized',featured:mapped(body.djRadios,podcastData)});
  if(state.step==='podcastHomePersonalized')return done({categories:state.categories,featured:state.featured,personalized:mapped(body.data,podcastData)},state,context);
@@ -180,7 +210,7 @@ function respondFeature(response,state,context){
   case 'listenTogetherPlayback':value=togetherPlayback(object(body.data));break;
   case 'sendListenTogetherHeartbeat':value=body.data?.timeSpan==null?null:integer(body.data.timeSpan);break;
   case 'match':value=array(body.data?.result).filter(v=>v.song?.id).map(v=>{const song=trackData(v.song);return {id:song.trackId,name:song.title,artists:song.artists.map(a=>a.name),album:song.album.title,coverUrl:song.artworkUrl||null,durationMs:song.durationMs,startTimeMs:v.startTime==null?null:integer(v.startTime,0,0,Number.MAX_SAFE_INTEGER)};});break;
-  case 'accountProfile':{storageAccount(body,state,context);value=profileData(body.profile||body.data?.profile);break;}
+  case 'accountProfile':{parseAccount(body,state,context);value=profileData(body.profile||body.data?.profile);break;}
   case 'accountDetail':value={profile:profileData(body.profile),level:integer(body.level),listenSongs:body.listenSongs==null?null:integer(body.listenSongs),createDays:body.createDays==null?null:integer(body.createDays)};break;
   case 'accountPlaylists':{const rows=requiredList(body.playlist),nextOffset=integer(p.offset)+rows.length;value={playlists:mapped(rows,accountPlaylistData),hasMore:rows.length>0&&(body.more??rows.length>=Math.min(100,integer(p.limit,100,1,2000))),nextOffset};break;}
   case 'accountConnections':{const rows=requiredList(String(p.type).toLowerCase()==='followers'?body.followeds:body.follow),next=integer(p.offset)+rows.length;state.connectionPage={users:[...new Map(mapped(rows,profileData).map(user=>[user.id,user])).values()],hasMore:rows.length>0&&(body.more??rows.length>=Math.min(30,integer(p.pageSize||p.limit,30,1,100))),nextOffset:next};state.connectionArtistIndex=0;return resolveConnectionArtist(context,state);}
@@ -188,8 +218,6 @@ function respondFeature(response,state,context){
   case 'intelligence':value={...scrub(body),tracks:mapped(body.data,value=>trackData(value.songInfo||value.song||value))};break;
   case 'privateFmModes':{const dsl=object(body.data?.crossPlatformResource?.dslData),sceneRoot=Array.isArray(dsl.currentSceneList)?dsl:Object.values(dsl).map(object).find(value=>Array.isArray(value.currentSceneList));const scenes=array(sceneRoot?.currentSceneList).filter(value=>typeof value.code==='string'&&value.code.trim()&&typeof value.title==='string'&&value.title.trim()).map(value=>({code:text(value.code,100),title:text(value.title,1000),cascadeMode:text(value.fmCascadeModeStr,1000)}));value={...scrub(body),scenes:[...new Map(scenes.map(value=>[value.code,value])).values()]};break;}
   case 'personalRadio':value={...scrub(body),tracks:mapped(body.data,trackData)};break;
-  // Keep full identities; the host hydrates metadata beyond the first batch on demand.
-  case 'cloudShuffle':value={order:array(body.data?.songIds).map(value=>identifier(value)).filter(Boolean),tracks:mapped(array(body.data?.songData).slice(0,30),trackData),unavailable:array(body.data?.privileges).filter(value=>Number(value.st)<0||value.pl!=null&&Number(value.pl)===0&&(!text(value.playMaxBrLevel).trim()||text(value.playMaxBrLevel).toLowerCase()==='none')).map(value=>identifier(value.id)).filter(Boolean)};break;
   case 'searchSuggestions':{const result=object(body.result),types={songs:'track',artists:'artist',albums:'album',playlists:'playlist'};value={items:Object.keys(types).flatMap(key=>mapped(result[key],item=>({type:types[key],id:id(item.id),name:nonempty(item.name,1000)})))};break;}
   case 'search':{const result=object(body.result),rows=requiredList(result.djRadios),count=integer(result.djRadiosCount||result.djRadioCount||result.count,integer(p.offset)+rows.length),more=result.hasMore??result.more??(count>integer(p.offset)+rows.length||rows.length>=integer(p.limit,30,1,100));value={podcasts:mapped(rows,podcastData),hasMore:!!more&&rows.length>0,totalCount:count,fetchedCount:rows.length};break;}
   case 'searchDiscovery':value={categories:searchCategories(),recommendations:mapped(body.result,v=>({id:id(v.id),name:text(v.name),artworkUrl:artwork(v.picUrl||v.coverImgUrl)||null,copywriter:nullableText(v.copywriter),creatorNickname:nullableText(v.creator?.nickname)}))};break;
