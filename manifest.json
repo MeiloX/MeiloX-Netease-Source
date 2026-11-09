@@ -3,7 +3,7 @@
   "providerId": "netease",
   "name": "网易云音乐",
   "author": "MeiloX contributors",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "apiVersion": 2,
   "entry": "index.js",
   "concurrentReadOperations": [
