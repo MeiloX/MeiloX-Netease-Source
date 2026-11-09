@@ -230,6 +230,51 @@ function flow(action,parameters,respond,effect,initial=signed,observe=()=>{}){
  assert.fail('Unbounded feature flow');
 }
 const entropy={...clone(signed),secureRandomBase64:Buffer.alloc(256,1).toString('base64')};
+// Each podcast phase must advance without re-entering its original feature action.
+const podcastCategory={id:1,name:'Music'},podcastFeatured={id:2,name:'Featured',programCount:1},podcastPersonalized={id:3,name:'Personalized'};
+const podcastHomePaths=['/djradio/category/get','/djradio/recommend/v1','/djradio/personalize/rcmd'];
+function podcastHomeResponse(request,state,index,empty=false){
+ assert(new URL(request.url).pathname.endsWith(podcastHomePaths[index]),'Podcast home must advance to the next endpoint');
+ return {status:200,body:JSON.stringify(index===0?{code:200,categories:empty?[]:[podcastCategory]}:index===1?{code:200,djRadios:empty?[]:[podcastFeatured]}:{code:200,data:empty?[]:[podcastPersonalized]})};
+}
+const podcastHome=flow('podcastHome',{},podcastHomeResponse,()=>assert.fail('Podcast home needs no external host effect'),entropy);
+assert.equal(podcastHome.requests.length,3);assert.equal(podcastHome.effects.length,0);
+assert.equal(podcastHome.result.categories[0].id,'1');assert.equal(podcastHome.result.featured[0].id,'2');assert.equal(podcastHome.result.personalized[0].id,'3');
+const emptyPodcastHome=flow('podcastHome',{},(request,state,index)=>podcastHomeResponse(request,state,index,true),()=>assert.fail('Empty home must still terminate'),entropy);
+assert.deepEqual(emptyPodcastHome.result,{categories:[],featured:[],personalized:[]});assert.equal(emptyPodcastHome.requests.length,3);assert.equal(emptyPodcastHome.effects.length,0);
+let seedPodcastBoundary=true;
+const continuedPodcastHome=flow('podcastHome',{},podcastHomeResponse,()=>assert.fail('Only the internal request continuation is allowed'),entropy,frame=>{
+ // Exercise a response at the existing four-request boundary without adding HTTP calls.
+ if(seedPodcastBoundary&&frame.request){frame.state.segmentRequests=4;seedPodcastBoundary=false;}
+});
+assert.deepEqual(continuedPodcastHome.result,podcastHome.result);assert.equal(continuedPodcastHome.requests.length,3);
+assert.deepEqual(continuedPodcastHome.effects.map(effect=>effect.type),['source.continue']);
+const podcastProgram={id:10,name:'Episode',radio:{id:9,name:'Podcast'},mainSong:{id:42},duration:1000};
+const podcastDetail=flow('podcastDetail',{id:'9',limit:1},(request,state,index)=>{
+ assert(new URL(request.url).pathname.endsWith(index===0?'/djradio/v2/get':'/dj/program/byradio'));
+ return {status:200,body:JSON.stringify(index===0?{code:200,data:{id:9,name:'Podcast',programCount:2}}:{code:200,programs:[podcastProgram],count:2,more:true})};
+},()=>assert.fail('Podcast detail needs no external host effect'),entropy);
+assert.equal(podcastDetail.requests.length,2);assert.equal(podcastDetail.effects.length,0);assert.equal(podcastDetail.result.podcast.id,'9');
+assert.equal(podcastDetail.result.programs[0].id,'10');assert.equal(podcastDetail.result.hasMore,true);assert.equal(podcastDetail.result.nextOffset,1);
+const fallbackPodcastDetail=flow('podcastDetail',{id:'9',limit:1},(request,state,index)=>{
+ assert(new URL(request.url).pathname.endsWith(index<2?'/djradio/v2/get':'/dj/program/byradio'));
+ if(index===0)return {status:503,body:'unavailable'};
+ if(index===1)assert.equal(request.sdkConfig.mode,'eapi');
+ return {status:200,body:JSON.stringify(index===1?{code:200,data:{id:9,name:'Podcast',programCount:2}}:{code:200,programs:[podcastProgram],count:2,more:true})};
+},()=>assert.fail('Read fallback must not loop through host effects'),entropy);
+assert.equal(fallbackPodcastDetail.requests.length,3);assert.equal(fallbackPodcastDetail.effects.length,0);assert.deepEqual(fallbackPodcastDetail.result,podcastDetail.result);
+const bindingsAccount=flow('bindings',{},(request,state,index)=>{
+ assert(new URL(request.url).pathname.endsWith(index===0?'/nuser/account/get':'/user/bindings/7'));
+ return {status:200,body:JSON.stringify(index===0?profile:{code:200,bindings:[{type:1,tokenJsonStr:'{"nickname":"Bound account"}'}]})};
+},()=>assert.fail('Bindings account resolution needs no host effect'),entropy);
+assert.equal(bindingsAccount.requests.length,2);assert.equal(bindingsAccount.result[0].displayName,'Bound account');
+const cancelledPodcastContext=clone(entropy),cancelledPodcastRequest=clone(plugin['feature.invoke']({feature:'podcasts',action:'podcastHome',parameters:{}},cancelledPodcastContext));
+cancelledPodcastRequest.state.segmentRequests=4;
+const cancelledPodcastPlan=clone(plugin.onResponse('feature.invoke',podcastHomeResponse(cancelledPodcastRequest.request,cancelledPodcastRequest.state,0),cancelledPodcastRequest.state,cancelledPodcastContext));
+assert.equal(cancelledPodcastPlan.result.hostEffect.type,'source.continue');cancelledPodcastContext.storage=cancelledPodcastPlan.storage;
+const cancelledPodcast=clone(plugin['feature.invoke']({feature:'podcasts',action:'podcastHome',parameters:{$continuation:{state:cancelledPodcastPlan.result.continuation,effect:{ok:false,code:'CANCELLED'},token:'host-bound-token'}}},cancelledPodcastContext));
+assert.deepEqual(cancelledPodcast.result,{status:'cancelled',code:'CANCELLED'});assert.equal(cancelledPodcast.request,undefined);
+assert(!Object.keys(cancelledPodcast.storage).some(key=>key.startsWith('pending:podcasts:podcastHome:')));
 const security={checkToken:'proof',headerAntiCheatToken:'header-proof',ydDeviceToken:'device-proof',deviceId:'private-device',sDeviceId:'registered-device',securityCookies:{nmcid:'sdk-cid',nmdi:'sdk-di',nmtid:'sdk-tid'}};
 const password=flow('loginWithMobilePassword',{phone:'13800000000',countryCode:'86',password:'password'},request=>{
  const payload=JSON.parse(request.body);
@@ -490,7 +535,7 @@ const officialMessageRows=[{userInfoVO:{userInfoDetailList:[{userId:9003,nicknam
 const officialMessage=drive('feature.invoke',{feature:'messages',action:'officialConversations',parameters:{before:123456789,limit:20}},[{code:200,data:{more:true,records:JSON.stringify(officialMessageRows)}}]);const aggregation=JSON.parse(JSON.parse(officialMessage.requests[0].body).dialogueAggregationQueryMeta);assert.deepEqual(aggregation,{aggregationType:1,relatedId:8888,time:123456789,limit:20});assert.equal(officialMessage.result.result.nextTime,1000);assert.equal(officialMessage.result.result.conversations[0].fromUser.id,'9003');assert.equal(officialMessage.result.result.conversations[0].unreadCount,3);assert.equal(officialMessage.result.result.conversations[1].fromUser.nickname,'Music Benefits');assert.equal(featureValue('officialConversations',{},[{code:200,data:{more:true,records:[]}}]).hasMore,false);
 const devices=featureValue('devices',{},[{code:200,data:{userDeviceList:[{deviceKey:'old-key',deviceName:'Old phone',ifLoginDevice:false},{deviceKey:'current-key',deviceName:'Current phone',ifLoginDevice:true},{}]}}]);assert.equal(devices[0].key,'current-key');assert.equal(devices[0].current,true);assert.equal(devices.length,2);
 const authorizations=featureValue('authorizations',{},[{code:200,data:{records:[{clientId:'client-1',clientName:'Music app',accessToken:'secret'},{clientName:'invalid'}],page:{cursor:'next-page',more:true}}}]);assert.equal(authorizations.cursor,'next-page');assert.equal(authorizations.records[0].name,'Music app');assert(!JSON.stringify(authorizations).includes('secret'));
-const bindings=featureValue('bindings',{},[{code:200,bindings:[{type:5,tokenJsonStr:'{"nickname":"Bound profile","access_token":"secret"}'}]}]);assert.equal(bindings[0].displayName,'Bound profile');assert(!JSON.stringify(bindings).includes('secret'));
+const bindings=featureValue('bindings',{userId:'7'},[{code:200,bindings:[{type:5,tokenJsonStr:'{"nickname":"Bound profile","access_token":"secret"}'}]}]);assert.equal(bindings[0].displayName,'Bound profile');assert(!JSON.stringify(bindings).includes('secret'));
 const cloudPageFixture=featureValue('cloudSongs',{offset:200},[{code:200,count:204,size:42,maxSize:99,hasMore:true,data:[{songId:1,songName:'First'},null,{}, {songId:2,songName:'Second'}]}]);assert.deepEqual(cloudPageFixture.songs.map(song=>song.id),['1','2']);assert.equal(cloudPageFixture.nextOffset,204);assert.equal(cloudPageFixture.usedSize,42);assert.equal(cloudPageFixture.hasMore,true);assert.equal(featureError('cloudSongs',{offset:200},[{code:200,data:[],hasMore:true}]),'INVALID_RESPONSE');
 const programRows=featureValue('podcastPrograms',{id:'70',offset:10},[{code:200,count:14,programs:[{id:10},null,{}, {id:11}]}]);assert.deepEqual(programRows.programs.map(program=>program.id),['10','11']);assert.equal(programRows.fetchedCount,4);assert.equal(programRows.hasMore,false);
 const subscriptionRows=featureValue('subscribedPodcasts',{},[{code:200,total:10,djRadios:[{id:1},null,{}, {id:0}]}]);assert.equal(subscriptionRows.fetchedCount,4);assert.equal(subscriptionRows.hasMore,true);assert.deepEqual(subscriptionRows.podcasts.map(podcast=>podcast.id),['1']);assert.equal(featureError('podcastPrograms',{id:'70'},[{code:200,programs:[],more:true}]),'INVALID_RESPONSE');
