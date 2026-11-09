@@ -104,6 +104,34 @@ const albumTracks=value('album.tracks',{albumId:'9'},[{code:200,
 }]);
 assert.equal(albumTracks.items[0].artworkUrl,albumCover);
 assert.equal(albumTracks.items[1].artworkUrl,song(43).al.picUrl);
+
+const indexedAlbumSongs=[{...song(42),al:{id:9,name:'Album'}},song(43),{...song(42),al:{id:9,name:'Album'}},song(44)];
+const indexedAlbumBody={code:200,album:{id:9,name:'Indexed album',size:4,picUrl:albumCover},songs:indexedAlbumSongs};
+const indexedAlbum=drive('album.get',{albumId:'9',metadataLimit:2},[indexedAlbumBody]);
+assert.equal(indexedAlbum.requests.length,1);assert.equal(new URL(indexedAlbum.requests[0].url).pathname,'/api/v1/album/9');
+assert.deepEqual(indexedAlbum.result.result.trackIds,['42','43','42','44']);assert.deepEqual(indexedAlbum.result.result.tracks.map(track=>track.trackId),['42','43']);
+assert.equal(indexedAlbum.result.result.tracks[0].artworkUrl,albumCover);assert.equal(indexedAlbum.result.result.tracks[1].artworkUrl,song(43).al.picUrl);
+assert.deepEqual(Object.keys(indexedAlbum.result.storage),['wireIdentity']);
+const albumPage=value('album.tracks',{albumId:'9',offset:1,limit:2},[indexedAlbumBody]);
+assert.deepEqual(albumPage.items.map(track=>track.trackId),['43','42']);assert.equal(albumPage.hasMore,true);assert.equal(albumPage.nextCursor,'3');
+const lastAlbumPage=value('album.tracks',{albumId:'9',cursor:'3',limit:2},[indexedAlbumBody]);assert.deepEqual(lastAlbumPage.items.map(track=>track.trackId),['44']);assert.equal(lastAlbumPage.hasMore,false);
+const largerAlbum={code:200,album:{id:9,name:'Larger album',size:65},songs:Array.from({length:65},(_,index)=>song(1000+index))};
+const plainAlbum=value('album.get',{albumId:'9'},[largerAlbum]);assert.equal(plainAlbum.trackIds,undefined);assert.equal(plainAlbum.tracks,undefined);
+const defaultAlbum=value('album.get',{albumId:'9',includeTracks:true},[largerAlbum]);assert.equal(defaultAlbum.trackIds.length,65);assert.equal(defaultAlbum.tracks.length,30);
+const largeAlbumIndex=value('album.get',{albumId:'9',metadataLimit:1},[{code:200,album:{id:9,name:'Large index',size:6001},songs:Array.from({length:6001},(_,index)=>({id:10000+index,name:'Track '+index}))}]);assert.equal(largeAlbumIndex.trackIds.length,6001);assert.equal(largeAlbumIndex.trackIds.at(-1),'16000');assert.equal(largeAlbumIndex.tracks.length,1);
+for(const metadataLimit of [1,30,5000]){const detail=value('album.get',{albumId:'9',metadataLimit},[largerAlbum]);assert.equal(detail.trackIds.length,65);assert.equal(detail.tracks.length,Math.min(metadataLimit,65));}
+const metadataOnlyAlbum=value('album.get',{albumId:'9',metadataLimit:2,includeTracks:false},[indexedAlbumBody]);assert.equal(metadataOnlyAlbum.albumId,'9');assert.equal(metadataOnlyAlbum.trackIds,undefined);assert.equal(metadataOnlyAlbum.tracks,undefined);
+for(const body of [
+ {code:200,album:{id:9,name:'Album',size:2}},
+ {code:200,album:{id:9,name:'Album',size:2},songs:{}},
+ {code:200,album:{id:9,name:'Album',size:3},songs:[song(42),song(43)]},
+ {...indexedAlbumBody,more:true},
+ {...indexedAlbumBody,songs:[song(42),{id:0},song(43),song(44)]},
+ {code:200,album:{id:9,name:'Oversized album',size:100001},songs:Array(100001).fill({id:42})},
+]){const detail=value('album.get',{albumId:'9',metadataLimit:30},[body]);assert.equal(detail.albumId,'9');assert.equal(detail.trackIds,undefined);assert.equal(detail.tracks,undefined);}
+const emptyAlbum=value('album.get',{albumId:'9',includeTracks:true},[{code:200,album:{id:9,name:'Empty album',size:0},songs:[]}]);assert.deepEqual(emptyAlbum.trackIds,[]);assert.deepEqual(emptyAlbum.tracks,[]);
+const sparseMetadata=value('album.get',{albumId:'9',metadataLimit:30},[{code:200,album:{id:9,name:'Sparse metadata',size:2},songs:[song(42),{...song(43),name:'   '}]}]);assert.deepEqual(sparseMetadata.trackIds,['42','43']);assert.deepEqual(sparseMetadata.tracks.map(track=>track.trackId),['42']);
+
 const recommendedPlaylist={...playlist(),copywriter:'Recommendation from the source'};
 const recommended=value('feed.discover',{},[{code:200,playlists:[recommendedPlaylist],more:false}]);
 assert.equal(recommended.sections[0].items[0].playlist.subtitle,recommendedPlaylist.copywriter);

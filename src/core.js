@@ -108,14 +108,19 @@ function respondCore(operation,response,state,context){
   case 'album':{
    const album=object(body.album);
    if(String(album.id)!==String(p.albumId))problem('NOT_FOUND');
-   const detail=albumData(album);
-   if(operation==='album.get')return done(detail,state,context);
-   const songs=array(body.songs),start=offset(p);
-   const tracks=songs.slice(start,start+limit(p)).map(song=>{
-    const track=trackData(song);
-    if(!track.artworkUrl)track.artworkUrl=detail.artworkUrl;
-    return track;
-   });
+   const detail=albumData(album),songs=array(body.songs);
+   const project=song=>{const track=trackData(song);if(!track.artworkUrl)track.artworkUrl=detail.artworkUrl;return track;};
+   if(operation==='album.get'){
+    if(p.includeTracks!==false&&(p.metadataLimit!=null||p.includeTracks===true)&&Array.isArray(body.songs)&&songs.length<=100000&&body.more!==true&&detail.trackCount<=songs.length){
+     try{
+      const trackIds=songs.map(song=>id(song?.id||song?.songId));
+      const tracks=mapped(songs.slice(0,integer(p.metadataLimit,30,1,5000)),song=>{const track=project(song);if(!track.title.trim())problem('INVALID_RESPONSE');track.artists=track.artists.filter(artist=>artist.name.trim());return track;});
+      return done({...detail,trackIds,tracks},state,context);
+     }catch(_){/* Preserve plain metadata when the service does not supply a complete valid index. */}
+    }
+    return done(detail,state,context);
+   }
+   const start=offset(p),tracks=songs.slice(start,start+limit(p)).map(project);
    return done(page(tracks,p,songs.length,false),state,context);
   }
   case 'artist':{const artist=object(object(body.data).artist);if(String(artist.id)!==String(p.artistId))problem('NOT_FOUND');return done(artistData(artist,object(body.data)),state,context);}
