@@ -2,13 +2,13 @@
 
 A removable NetEase Music source for MeiloX source API 2. Protocol recipes, endpoint selection, request fields, and response projection live in this repository. Shared presentation, playback, local data, and multi-source lyrics remain host features.
 
-Version 0.1.7 retains server shuffle requests and exposes complete playlist indexes, bulk track metadata, and official Android experiment configuration. The host owns account state, playlist indexes, metadata caches, prefetching, and the local shuffle algorithm.
+Version 0.1.8 declares `*.music.126.net` for NetEase audio and artwork CDNs, including the `m803.music.126.net` host returned for valid lossless resources. It retains server shuffle requests, complete playlist indexes, bulk track metadata, and official Android experiment configuration. The host owns account state, playlist indexes, metadata caches, prefetching, and the local shuffle algorithm.
 
 The optional `catalog.tracks` operation accepts at most 1000 track IDs and resolves them with one song-detail request. Results preserve requested order and duplicates while omitting missing tracks. `playlist.get` returns its playlist fields plus complete `trackIds` and any normalized `tracks` included by the service. The optional `metadataLimit` parameter maps directly to the detail request's `n` field, between 1 and 5000, and defaults to 1 for older hosts. `library.likedTracks` accepts `metadataOnly: true` to return the same index result after resolving the current user's liked playlist. The host decides when to fetch, retain, reuse, hydrate, or invalidate these results. The source never stores catalog snapshots or caches account profiles.
 
-The package includes the exact `p6.music.126.net` permission for Home artwork alongside its existing image hosts. NetEase can return different audio CDN hosts across tracks and sessions. Audio permissions cover the exact hosts `m7`, `m8`, `m10`, `m701`, `m704`, `m801`, and `m804` under `music.126.net`; no wildcard domains are requested.
+NetEase can return different audio and artwork CDN hosts across tracks and sessions. The network grant `*.music.126.net` covers subdomains at any depth, such as `m803.music.126.net`, `edge.m803.music.126.net`, and `p6.music.126.net`. It does not grant the bare `music.126.net` domain, unrelated domains, or suffix tricks such as `m803.music.126.net.example`.
 
-The additional audio hosts are supported by [original API response records](https://github.com/Binaryify/NeteaseCloudMusicApi/issues/1792), [Listen1's recorded player response](https://github.com/listen1/listen1_desktop/issues/797), and [MusicBot-Go's explicit CDN handling](https://github.com/liuran001/MusicBot-Go/blob/main/bot/download/service.go#L75). This is a finite reviewed list, not an enumeration of every future service host. A new host requires a reviewed package update; the source preserves the server-provided hostname.
+The host must support wildcard network grants for this package; older hosts reject its manifest. Replacing exact grants with this wildcard requires network-permission review for marketplace updates. All other API hosts remain exact grants. The wildcard changes only the network permission declaration: concrete requests and resource URLs remain HTTPS, and the source preserves each server-provided hostname.
 
 ## Build
 

@@ -27,6 +27,13 @@ if(process.argv.slice(2).length){
 }
 const manifest=JSON.parse(readFileSync(new URL('manifest.json',import.meta.url)));
 assert.equal(manifest.catalogBatchSize,1000);assert.deepEqual(manifest.discardStorageKeys,['playlistShuffleSnapshot','officialShuffleState','accountKey','userId','profile','playlistMetadata','playlistMetadataInfo']);assert.deepEqual(manifest.sessionKeys,['cookie','sessionType']);assert.deepEqual(manifest.sessionCookieNames,{cookie:['MUSIC_U']});
+// Contract model for the host's hostname-only network grant matching.
+function hasNetworkGrant(host){
+ if(typeof host!=='string'||host.length>253)return false;
+ const normalized=host.toLowerCase(),labels=normalized.split('.');
+ if(labels.length<2||labels.some(label=>!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)))return false;
+ return manifest.permissions.network.some(grant=>grant.startsWith('*.')?normalized.endsWith(grant.slice(1)):normalized===grant);
+}
 const scope=vm.createContext({Date});
 vm.runInContext(readFileSync(new URL('index.js',import.meta.url),'utf8'),scope,{timeout:1000});
 const plugin=scope.sourcePlugin;
@@ -44,7 +51,7 @@ function drive(operation,params,replies,context=signed){
   const request=result.request;requests.push(request);
   assert.equal(request.sdk,'netease.transport');
   assert.equal(new URL(request.url).protocol,'https:');
-  assert(manifest.permissions.network.includes(new URL(request.url).hostname));
+  assert(hasNetworkGrant(new URL(request.url).hostname));
   const next=typeof replies==='function'?replies(request,n):replies[n];assert.notEqual(next,undefined,operation+' fixture missing at '+n);
   const response=typeof next==='string'?{status:200,body:next}:{status:200,body:JSON.stringify(next.body??next),setCookies:next.setCookies??[]};
   result=clone(plugin.onResponse(operation,clone(response),clone(result.state),clone(context)));
@@ -130,7 +137,9 @@ const largePlaylistTail=drive('playlist.tracks',{playlistId:'10',offset:9800,lim
 assert.equal(JSON.parse(largePlaylistTail.requests[0].body).n,1);assert.deepEqual(JSON.parse(JSON.parse(largePlaylistTail.requests[1].body).c).map(value=>value.id),largePlaylistIds.slice(9800));assert.deepEqual(largePlaylistTail.result.result.items.map(value=>value.trackId),largePlaylistIds.slice(9800));assert.equal(largePlaylistTail.result.result.hasMore,false);
 const publicAudio={code:200,data:[{id:42,code:200,url:'https://m10.music.126.net/audio.mp3',level:'exhigh',size:1024,expi:300,type:'mp3',md5:'fixture'}]};
 const audio=value('playback.resolve',{trackId:'42',quality:'exhigh'},[publicAudio]);assert.equal(audio.quality,'exhigh');assert.equal(audio.cachePolicy,'ALLOW');assert.equal(audio.headers,undefined);
-const audioHosts=['m7.music.126.net','m8.music.126.net','m10.music.126.net','m701.music.126.net','m704.music.126.net','m801.music.126.net','m804.music.126.net'];assert.deepEqual(manifest.permissions.network.filter(host=>/^m[0-9]+\.music\.126\.net$/.test(host)).sort(),audioHosts.slice().sort());for(const host of audioHosts){const resource=value('playback.resolve',{trackId:'42',quality:'exhigh'},[{code:200,data:[{...publicAudio.data[0],url:'https://'+host+'/audio.mp3'}]}]);assert.equal(new URL(resource.uri).hostname,host);assert(manifest.permissions.network.includes(host));assert.equal(resource.headers,undefined);}assert(manifest.permissions.network.includes('p6.music.126.net'));assert(!manifest.permissions.network.some(host=>host.includes('*')));
+const audioHosts=['m7.music.126.net','m8.music.126.net','m10.music.126.net','m701.music.126.net','m704.music.126.net','m801.music.126.net','m803.music.126.net','m804.music.126.net','m999.music.126.net','edge.m803.music.126.net'];assert.deepEqual(manifest.permissions.network.filter(host=>host.includes('*')),['*.music.126.net']);assert(!manifest.permissions.network.some(host=>/\.music\.126\.net$/.test(host)&&host!=='*.music.126.net'));for(const host of audioHosts){const resource=value('playback.resolve',{trackId:'42',quality:'exhigh'},[{code:200,data:[{...publicAudio.data[0],url:'https://'+host+'/audio.mp3'}]}]);assert.equal(new URL(resource.uri).hostname,host);assert(hasNetworkGrant(host));assert.equal(resource.headers,undefined);}assert(hasNetworkGrant('p6.music.126.net'));assert(hasNetworkGrant('EDGE.M803.MUSIC.126.NET'));for(const host of ['music.126.net','m803.music.126.net.example','evil-music.126.net','m803.music.163.com','m803music.126.net','edge..music.126.net'])assert(!hasNetworkGrant(host));assert(hasNetworkGrant('interface3.music.163.com'));assert(!hasNetworkGrant('edge.interface3.music.163.com'));
+const m803Lossless=drive('playback.resolve',{trackId:'469699517',quality:'jymaster'},[{code:200,data:[{id:469699517,code:200,url:'https://m803.music.126.net/fixture-469699517.flac',level:'lossless',size:37698764,expi:300,type:'flac'}]}]);
+assert.equal(m803Lossless.requests.length,1);assert.equal(m803Lossless.result.error,undefined);assert.equal(m803Lossless.result.result.quality,'lossless');assert.equal(m803Lossless.result.result.contentLength,37698764);assert.equal(m803Lossless.result.result.mimeType,'audio/flac');assert.equal(new URL(m803Lossless.result.result.uri).hostname,'m803.music.126.net');assert(hasNetworkGrant(new URL(m803Lossless.result.result.uri).hostname));
 const trial={code:200,data:[{...publicAudio.data[0],freeTrialInfo:{start:0,end:30}}]};assert.equal(drive('playback.resolve',{trackId:'42',quality:'standard'},[trial]).result.error,'UNAVAILABLE');
 const privilegeAudio=value('playback.resolve',{trackId:'42',quality:'standard'},[{code:200,data:[{...publicAudio.data[0],freeTrialPrivilege:{resConsumable:true}}]}]);assert.equal(privilegeAudio.quality,'exhigh');
 assert.equal(drive('playback.resolve',{trackId:'42',quality:'standard'},[{code:200,data:[{...publicAudio.data[0],code:undefined}]}]).result.error,'UNAVAILABLE');
@@ -495,7 +504,7 @@ const squareBlocks=[
  {positionCode:'PAGE_RECOMMEND_MY_SHEET',dslData:{blockResource:{title:'我的歌单',resources:[captionedResource(206,'My list',[],[]),cardResource('add','999')]}}}
 ];
 const squareHome=value('feed.home',{},[{code:200,data:{blocks:squareBlocks,hasMore:false}}]);const squareById=new Map(squareHome.sections.map(section=>[section.id,section]));
-const p6Blocks=clone(squareBlocks);p6Blocks[0].dslData.blockResource.resources[0].coverImg='https://p6.music.126.net/public-home-fixture.jpg';const p6Home=value('feed.home',{},[{code:200,data:{blocks:p6Blocks,hasMore:false}}]).sections.find(section=>section.id==='PAGE_RECOMMEND_RADAR');for(const url of [p6Home.items[0].playlist.artworkUrl,p6Home.cards[0].artworkUrl]){assert.equal(new URL(url).hostname,'p6.music.126.net');assert(manifest.permissions.network.includes(new URL(url).hostname));}assert(!manifest.permissions.network.some(host=>host.includes('*')));
+const p6Blocks=clone(squareBlocks);p6Blocks[0].dslData.blockResource.resources[0].coverImg='https://p6.music.126.net/public-home-fixture.jpg';const p6Home=value('feed.home',{},[{code:200,data:{blocks:p6Blocks,hasMore:false}}]).sections.find(section=>section.id==='PAGE_RECOMMEND_RADAR');for(const url of [p6Home.items[0].playlist.artworkUrl,p6Home.cards[0].artworkUrl]){assert.equal(new URL(url).hostname,'p6.music.126.net');assert(hasNetworkGrant(new URL(url).hostname));}
 assert.equal(squareById.get('PAGE_RECOMMEND_RADAR').items[0].playlist.playCount,undefined);
 const countedHomeBlocks=clone(squareBlocks);countedHomeBlocks[0].dslData.blockResource.resources[0].resourceInteractInfo.playCount=4500000000;assert.equal(value('feed.home',{},[{code:200,data:{blocks:countedHomeBlocks,hasMore:false}}]).sections.find(section=>section.id==='PAGE_RECOMMEND_RADAR').items[0].playlist.playCount,4500000000);
 const radarCards=squareById.get('PAGE_RECOMMEND_RADAR').cards;assert.equal(squareById.get('PAGE_RECOMMEND_RADAR').title,'雷达歌单');assert.equal(radarCards[0].title,'私人 雷达');assert.equal(radarCards[0].subtitle,'私人雷达');assert.equal(radarCards[0].artworkUrl,processedCover);assert.equal(radarCards[0].detail,'12.3万');assert.deepEqual(radarCards[0].coverCaptions,[]);assert.equal(radarCards[0].titleMaxLines,1);assert.equal(radarCards[1].title,'');assert.equal(radarCards[1].subtitle,'Only subtitle');assert.equal(squareById.get('PAGE_RECOMMEND_RADAR').items[0].playlist.title,'私人雷达');assert.equal(squareById.get('PAGE_RECOMMEND_RADAR').items[0].playlist.artworkUrl,processedCover);
