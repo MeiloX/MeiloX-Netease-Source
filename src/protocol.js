@@ -33,16 +33,35 @@ function responseHeader(response,name){const value=Object.entries(object(respons
 function freshCookie(response,name){let result=null;for(const line of array(response.setCookies)){if(typeof line!=='string'||/[\r\n]/.test(line))continue;const pair=line.split(';',1)[0],at=pair.indexOf('=');if(at>0&&pair.slice(0,at).trim().toLowerCase()===name.toLowerCase()){const value=pair.slice(at+1);result=value&&!/max-age=0\b/i.test(line)?value:null;}}return result;}
 function commitMobileCookies(response,state,context){const musicU=freshCookie(response,'MUSIC_U'),csrf=freshCookie(response,'__csrf')||state.loginCsrf,musicA=freshCookie(response,'MUSIC_A');if(!musicU||!csrf)problem('AUTH_REQUIRED');const cookies=new Map();for(const part of cookie(context,state.store).split(';')){const pair=part.trim(),at=pair.indexOf('=');if(at>0&&!['MUSIC_U','MUSIC_A','__csrf'].includes(pair.slice(0,at)))cookies.set(pair.slice(0,at),pair.slice(at+1));}cookies.set('MUSIC_U',musicU);if(musicA)cookies.set('MUSIC_A',musicA);cookies.set('__csrf',csrf);state.store.cookie=[...cookies].map(([key,value])=>key+'='+value).join('; ');state.store.csrf=csrf;state.store.musicA=musicA||'';state.store.refreshToken=responseHeader(response,'x-refresh-token');}
 /** Pending executions are independent; only expired plans may be reclaimed. */
-function persistPlan(prefix,context,state,extra={}){const store=state.store,now=Date.now();for(const [key,value]of Object.entries(store)){if(!key.startsWith('pending:'))continue;let plan;try{plan=parseJSON(value);}catch(_){continue;}if(typeof plan.expiresAt==='number'&&plan.expiresAt<=now)delete store[key];}const sequence=integer(store.pendingSequence,0,0,Number.MAX_SAFE_INTEGER),nonce=secureHex(context,3)+'_'+sequence,key=prefix+nonce,copy={...state,...extra,nonce,expiresAt:now+300000};delete copy.store;const serialized=JSON.stringify(copy);if(Object.keys(store).filter(key=>key.startsWith('pending:')).length>=16||utf8Bytes(JSON.stringify({...store,[key]:serialized})).length>60000)problem('UNAVAILABLE');if(has(store,key))problem('UNAVAILABLE');store.pendingSequence=String(sequence===Number.MAX_SAFE_INTEGER?0:sequence+1);store[key]=serialized;return {key,nonce};}
+function persistPlan(prefix,context,state,extra={}){
+ const store=state.store,now=Date.now(),readOnly=context.readOnlyStorage===true;
+ const sequence=readOnly?0:integer(store.pendingSequence,0,0,Number.MAX_SAFE_INTEGER),nonce=secureHex(context,3)+'_'+sequence,copy={...state,...extra,nonce,expiresAt:now+300000};delete copy.store;
+ if(readOnly)return {nonce,inline:copy};
+ for(const [key,value]of Object.entries(store)){if(!key.startsWith('pending:'))continue;let plan;try{plan=parseJSON(value);}catch(_){continue;}if(typeof plan.expiresAt==='number'&&plan.expiresAt<=now)delete store[key];}
+ const key=prefix+nonce,serialized=JSON.stringify(copy);if(Object.keys(store).filter(key=>key.startsWith('pending:')).length>=16||utf8Bytes(JSON.stringify({...store,[key]:serialized})).length>60000)problem('UNAVAILABLE');if(has(store,key))problem('UNAVAILABLE');store.pendingSequence=String(sequence===Number.MAX_SAFE_INTEGER?0:sequence+1);store[key]=serialized;return {key,nonce};
+}
 function pendingKey(continuation,prefix){const key=continuation?.state?.key,nonce=continuation?.state?.nonce;if(typeof key!=='string'||typeof nonce!=='string'||!/^[a-f0-9]{32}_[0-9]{1,16}$/.test(nonce)||key!==prefix+nonce)problem('INVALID_RESPONSE');return key;}
-function done(result,state,context){const store=state&&state.store?state.store:newStore(context);return {result,storage:store};}
+/** Immutable reads keep continuations in their host-owned invocation instead of durable storage. */
+function continuationState(context,continuation,prefix){
+ if(context.readOnlyStorage===true){const frame=object(continuation.state),state=object(frame.inline);if(!frame.inline||typeof frame.nonce!=='string'||!/^[a-f0-9]{32}_[0-9]{1,16}$/.test(frame.nonce)||state.nonce!==frame.nonce||has(state,'store')||!Number.isSafeInteger(state.expiresAt))problem('INVALID_RESPONSE');return {...state,store:newStore(context)};}
+ const key=pendingKey(continuation,prefix);let state;try{state=parseJSON(String(context.storage?.[key]||''));}catch(_){problem('INVALID_RESPONSE');}state.store=newStore(context);delete state.store[key];return state;
+}
+function done(result,state,context){if(context.readOnlyStorage===true)return {result};const store=state&&state.store?state.store:newStore(context);return {result,storage:store};}
 const DESKTOP_PROFILE={os:'pc',osver:'Microsoft-Windows-10-Professional-build-22631-64bit',appver:'3.0.18.203152',channel:'netease',versioncode:'6006066',mobilename:'Mi+A3',buildver:'1768990079',resolution:'2268x1080',ua:'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Safari/537.36 Chrome/91.0.4472.164 NeteaseMusicDesktop/3.0.18.203152'};
 const DESKTOP_URS_APPID='F2219AE9D7828A7D73E2006D000C61031D196A37DB497E3885B8298504867886B6F0E44087D61EFC06BE92279CD6EEC6';
 const DESKTOP_NMDI='Q1NKTQkBDAAMIEF4coQMHcb6TLA7AAAAciOiJ%2F%2FOO4VQ7m%2FLvLJ1pD9CIsJP5mfzI4SusB%2BaNScGLpThEYBcPxGzj0pL5hLdZ7LqB2UVULdYgc0%3D';
 const DESKTOP_CSRF='40ab38f0a305fc4c7ff68e636bcf34aa';
 const LEGACY_CHECK_TOKEN='9ca17ae2e6ffcda170e2e6ee8af14fbabdb988f225b3868eb2c15a879b9a83d274a790ac8ff54a97b889d5d42af0feaec3b92af58cff99c470a7eafd88f75e839a9ea7c14e909da883e83fb692a3abdb6b92adee9e';
 function mobileProfile(context){const device=object(context.device),osver=text(device.osVersion||'Android',1000),model=text(device.model||'Android',1000),buildId=text(device.buildId||'',1000);return {os:'android',osver,appver:'9.5.70',channel:'xiaomi',versioncode:'9005070',mobilename:model.replace(/ /g,'+'),buildver:'260818213343',resolution:text(device.resolution||'2268x1080',100),ua:'NeteaseMusic/9.5.70.260818213343(9005070);Dalvik/2.1.0 (Linux; U; Android '+osver+'; '+model+' Build/'+buildId+')'};}
-function wireIdentity(context,store){let value;try{value=JSON.parse(store.wireIdentity||'null');}catch(_){}if(!value||typeof value.nuid!=='string'){const random=secureHex(context,7);value={nuid:secureHex(context,6),nmtid:random.slice(0,16),csrf:random,wnmcid:[...random.slice(0,6)].map(value=>String.fromCharCode(97+parseInt(value,16))).join('')+'.'+Date.now()+'.01.0',ip:'116.25.'+(1+parseInt(random.slice(0,2),16)%253)+'.'+(1+parseInt(random.slice(2,4),16)%253)};store.wireIdentity=JSON.stringify(value);}return value;}
+function wireIdentity(context,store){
+ let value;try{value=JSON.parse(store.wireIdentity||'null');}catch(_){}
+ if(!value||typeof value.nuid!=='string'){
+  const readOnly=context.readOnlyStorage===true,installation=text(context.device?.installationId,256);if(readOnly&&!installation)problem('UNSUPPORTED');
+  const random=readOnly?md5(PLUGIN_ID+':csrf:'+installation):secureHex(context,7),nuid=readOnly?md5(PLUGIN_ID+':nuid:'+installation):secureHex(context,6);
+  value={nuid,nmtid:random.slice(0,16),csrf:random,wnmcid:[...random.slice(0,6)].map(value=>String.fromCharCode(97+parseInt(value,16))).join('')+'.'+Date.now()+'.01.0',ip:'116.25.'+(1+parseInt(random.slice(0,2),16)%253)+'.'+(1+parseInt(random.slice(2,4),16)%253)};store.wireIdentity=JSON.stringify(value);
+ }
+ return value;
+}
 function wirePayload(payload,mode,numericFields){
  if(numericFields==null)return JSON.stringify(payload);
  if(mode!=='eapi'||!Array.isArray(numericFields)||numericFields.length>2||new Set(numericFields).size!==numericFields.length)problem('INVALID_RESPONSE');

@@ -3,9 +3,112 @@
   "providerId": "netease",
   "name": "网易云音乐",
   "author": "MeiloX contributors",
-  "version": "0.1.10",
+  "version": "0.1.12",
   "apiVersion": 2,
   "entry": "index.js",
+  "concurrentReadOperations": [
+    "links.resolve",
+    "catalog.search",
+    "catalog.track",
+    "catalog.tracks",
+    "album.get",
+    "album.tracks",
+    "artist.get",
+    "artist.tracks",
+    "artist.albums",
+    "playlist.get",
+    "playlist.tracks",
+    "feed.home",
+    "feed.discover",
+    "library.likedTracks",
+    "library.createdPlaylists",
+    "library.savedPlaylists",
+    "library.savedAlbums",
+    "library.followedArtists",
+    "track.liked",
+    "collection.saved",
+    "playback.resolve",
+    "playback.qualities"
+  ],
+  "concurrentReadFeatures": {
+    "messages": [
+      "privateConversations",
+      "officialConversations",
+      "privateMessages",
+      "messageContacts"
+    ],
+    "together": [
+      "parseInvitation",
+      "invitationLink",
+      "listenTogetherStatus",
+      "checkListenTogetherRoom",
+      "listenTogetherPlayback"
+    ],
+    "recognition": [
+      "match"
+    ],
+    "account": [
+      "accountProfile",
+      "accountDetail",
+      "accountPlaylists",
+      "accountConnections"
+    ],
+    "podcasts": [
+      "podcastHome",
+      "podcasts",
+      "podcastDetail",
+      "podcastProgram",
+      "podcastPrograms",
+      "subscribedPodcasts",
+      "search"
+    ],
+    "discovery": [
+      "searchCategories",
+      "searchDiscovery",
+      "dailySongs",
+      "homePlayback",
+      "personalRadio",
+      "cloudShuffle",
+      "shuffleInput",
+      "shufflePolicy",
+      "privateFmModes",
+      "intelligence",
+      "topLists",
+      "playlistCategories",
+      "searchSuggestions",
+      "searchHot"
+    ],
+    "security": [
+      "summary",
+      "phoneBinding",
+      "devices",
+      "authorizations",
+      "bindings",
+      "protection"
+    ],
+    "cloud": [
+      "cloudSongs"
+    ],
+    "stats": [
+      "userPlayRecords",
+      "listeningStatsSummary",
+      "listeningStatsReport",
+      "listeningStatsYears",
+      "recentSongs"
+    ],
+    "social": [
+      "shareLink",
+      "songWiki",
+      "comments",
+      "floorComments"
+    ],
+    "login": [
+      "parsePcQr",
+      "exportSession",
+      "sessionState",
+      "accountProfile"
+    ]
+  },
   "catalogBatchSize": 1000,
   "discardStorageKeys": [
     "playlistShuffleSnapshot",
