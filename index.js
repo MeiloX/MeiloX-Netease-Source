@@ -263,7 +263,7 @@ function respondCore(operation,response,state,context){
    return done(page(tracks,p,songs.length,false),state,context);
   }
   case 'artist':{const artist=object(object(body.data).artist);if(String(artist.id)!==String(p.artistId))problem('NOT_FOUND');return done(artistData(artist,object(body.data)),state,context);}
-  case 'artistTracks':return done(page(array(body.songs).map(trackData),p,Number(body.total)||undefined,body.more===true),state,context);
+  case 'artistTracks':return done(page(array(body.songs).slice(0,limit(p)).map(trackData),p,Number(body.total)||undefined,body.more===true),state,context);
   case 'artistAlbums':return done(page(array(body.hotAlbums).map(albumData),p,undefined,body.more===true),state,context);
   case 'playlist':case 'likedPlaylist':{
    const playlist=object(body.playlist);if(String(playlist.id)!==String(state.playlistId||p.playlistId))problem('NOT_FOUND');
